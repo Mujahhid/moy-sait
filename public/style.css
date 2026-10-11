@@ -12,6 +12,9 @@
   --danger: #a3372b;
   --shadow: 0 1px 2px rgba(40, 36, 20, .08), 0 8px 24px rgba(40, 36, 20, .08);
   --radius: 14px;
+  --wood-1: #b78f5c;
+  --wood-2: #9a7445;
+  --wood-3: #7d5b33;
   --font-body: 'Onest', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-display: 'Cormorant Garamond', 'Times New Roman', serif;
   --font-ar: 'Amiri', 'Traditional Arabic', serif;
@@ -30,6 +33,9 @@
     --gold: #d2ac5a;
     --gold-soft: #4a3f1f;
     --danger: #e0766a;
+    --wood-1: #6d5231;
+    --wood-2: #573f24;
+    --wood-3: #3f2c17;
     --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px rgba(0, 0, 0, .35);
   }
 }
@@ -125,6 +131,44 @@ main { max-width: 1120px; margin: 0 auto; padding: 0 20px 80px; outline: none; }
 .shelf-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 14px; }
 .shelf h2, .page-title { font: 600 1.9rem var(--font-display); margin: 0; }
 .shelf-head a { color: var(--green); font-weight: 500; font-size: .92rem; }
+/* ---------- Книжная полка ---------- */
+.bookcase { position: relative; }
+.bookcase-track {
+  overflow-x: auto; overflow-y: hidden; scroll-snap-type: x proximity; -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin; scrollbar-color: var(--line) transparent; padding-top: 14px; cursor: grab;
+}
+.bookcase-track:active { cursor: grabbing; }
+.bookcase-row {
+  position: relative; display: flex; align-items: flex-end; gap: 14px;
+  width: max-content; min-width: 100%; padding: 6px 22px 26px;
+}
+/* деревянная доска под книгами: растягивается на всю длину ряда */
+.bookcase-row::after {
+  content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 22px; border-radius: 4px;
+  background: linear-gradient(180deg, var(--wood-1) 0, var(--wood-2) 70%, var(--wood-3) 100%);
+  box-shadow: 0 6px 14px rgba(40, 30, 10, .25), inset 0 1px 0 rgba(255, 255, 255, .25);
+}
+.bookcase-track { scroll-padding-left: 22px; }
+.cover.spine {
+  --sh: var(--h, 220px);
+  flex: 0 0 auto; height: var(--sh); width: calc(var(--sh) * 3 / 4.2); min-width: 0;
+  scroll-snap-align: start; margin-bottom: 0; position: relative; z-index: 1;
+}
+.cover.spine .ph { padding: 14px 10px 14px 16px; }
+.cover.spine .ph b { font-size: .95rem; }
+.shelf-arrow {
+  position: absolute; top: 42%; transform: translateY(-50%); z-index: 3; width: 42px; height: 42px; border-radius: 50%;
+  border: 1px solid var(--line); background: color-mix(in srgb, var(--card) 92%, transparent); color: var(--ink);
+  font-size: 1.6rem; line-height: 1; box-shadow: var(--shadow); backdrop-filter: blur(4px);
+}
+.shelf-arrow:hover { border-color: var(--green); color: var(--green); }
+.shelf-arrow.prev { left: -6px; }
+.shelf-arrow.next { right: -6px; }
+@media (max-width: 640px) {
+  .shelf-arrow { display: none; } /* на телефоне листаем пальцем */
+  .cover.spine { --sh: calc(var(--h, 220px) * .85); }
+}
+
 .page-head { padding: 36px 0 10px; }
 .page-sub { color: var(--muted); margin: 4px 0 0; }
 

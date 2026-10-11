@@ -171,9 +171,8 @@
       </section>
       ${cont.length ? `<section class="shelf"><div class="shelf-head"><h2>Продолжить чтение</h2></div>
         <div class="grid">${cont.map(cardHtml).join('')}</div></section>` : ''}
-      ${books.length ? `<section class="shelf"><div class="shelf-head"><h2>Новые поступления</h2>
-        <a href="#catalog">Весь каталог →</a></div>
-        <div class="grid">${books.slice(0, 8).map(cardHtml).join('')}</div></section>`
+      ${books.length ? `<section class="shelf"><div class="shelf-head"><h2>Книжная полка</h2>
+        <a href="#catalog">Весь каталог →</a></div>${bookcaseHtml(books)}</section>`
         : `<div class="empty" style="margin-top:32px">Пока в библиотеке нет книг.
             ${state.me?.isAdmin ? '<br><button type="button" class="btn primary" id="first-book">Добавить первую книгу</button>' : ''}</div>`}
       <p class="notice">Мы размещаем только книги из свободного доступа или с разрешения правообладателей.
@@ -185,6 +184,74 @@
     };
     const fb = $('#first-book');
     if (fb) fb.onclick = openManage;
+    initBookcase();
+  }
+
+  /* ---------- Книжная полка: все книги в ряд, новые слева, прокрутка вбок ---------- */
+  function bookcaseHtml(books) {
+    return `<div class="bookcase" id="bookcase">
+      <button type="button" class="shelf-arrow prev" data-shelf="-1" aria-label="Прокрутить полку назад" hidden>‹</button>
+      <div class="bookcase-track" tabindex="0" role="list" aria-label="Книги на полке">
+        <div class="bookcase-row">${books.map((b, i) => `
+          <button type="button" role="listitem" class="cover spine" data-open="${b.id}" style="--h:${[220, 232, 210, 226][i % 4]}px"
+            title="${esc(b.title)}${b.author ? ' — ' + esc(b.author) : ''}" aria-label="Читать: ${esc(b.title)}">${coverHtml(b)}</button>`).join('')}
+        </div>
+      </div>
+      <button type="button" class="shelf-arrow next" data-shelf="1" aria-label="Прокрутить полку вперёд" hidden>›</button>
+    </div>`;
+  }
+
+  function initBookcase() {
+    const root = $('#bookcase');
+    if (!root) return;
+    const track = $('.bookcase-track', root);
+    const prev = $('.prev', root);
+    const next = $('.next', root);
+    const update = () => {
+      const max = track.scrollWidth - track.clientWidth;
+      prev.hidden = track.scrollLeft <= 4;
+      next.hidden = max <= 4 || track.scrollLeft >= max - 4;
+    };
+    track.addEventListener('scroll', update, { passive: true });
+    window.addEventListener('resize', update);
+    // колесо мыши прокручивает полку вбок, пока она не упрётся в край
+    track.addEventListener('wheel', (e) => {
+      if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
+      const max = track.scrollWidth - track.clientWidth;
+      if (max <= 0) return;
+      const atEdge = (e.deltaY < 0 && track.scrollLeft <= 0) || (e.deltaY > 0 && track.scrollLeft >= max - 1);
+      if (atEdge) return;
+      e.preventDefault();
+      track.scrollLeft += e.deltaY;
+    }, { passive: false });
+    // перетаскивание мышью
+    let drag = null;
+    track.addEventListener('pointerdown', (e) => {
+      if (e.pointerType !== 'mouse' || e.button !== 0) return;
+      drag = { x: e.clientX, left: track.scrollLeft, moved: false };
+    });
+    window.addEventListener('pointermove', (e) => {
+      if (!drag) return;
+      const dx = e.clientX - drag.x;
+      if (Math.abs(dx) > 5) drag.moved = true;
+      if (drag.moved) track.scrollLeft = drag.left - dx;
+    });
+    window.addEventListener('pointerup', () => {
+      if (drag?.moved) track.dataset.dragged = '1';
+      drag = null;
+      setTimeout(() => delete track.dataset.dragged, 0);
+    });
+    // после перетаскивания не открываем книгу случайным кликом
+    track.addEventListener('click', (e) => {
+      if (track.dataset.dragged) { e.stopPropagation(); e.preventDefault(); }
+    }, true);
+    root.addEventListener('click', (e) => {
+      const arrow = e.target.closest('[data-shelf]');
+      if (!arrow) return;
+      track.scrollBy({ left: Number(arrow.dataset.shelf) * track.clientWidth * 0.8, behavior: 'smooth' });
+    });
+    update();
+    requestAnimationFrame(update);
   }
 
   let searchTimer;
