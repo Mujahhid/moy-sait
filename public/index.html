@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>كتب العلوم — Книги знаний</title>
+  <meta name="description" content="Мусульманская библиотека: читайте книги прямо на сайте, прогресс сохраняется в аккаунте.">
+  <meta name="theme-color" content="#f4efe4">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%232d4a3e'/%3E%3Cpath d='M16 44V20c6-2 12-2 16 2 4-4 10-4 16-2v24c-6-2-12-2-16 2-4-4-10-4-16-2z' fill='none' stroke='%23e9d9a6' stroke-width='3' stroke-linejoin='round'/%3E%3Cpath d='M32 22v24' stroke='%23e9d9a6' stroke-width='3'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Amiri:wght@400;700&family=Cormorant+Garamond:wght@500;600;700&family=Onest:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header class="top">
+    <a class="brand" href="#home" aria-label="На главную">
+      <span class="brand-ar" lang="ar" dir="rtl">كتب العلوم</span>
+      <span class="brand-ru">Книги знаний</span>
+    </a>
+    <nav class="nav" aria-label="Разделы">
+      <a href="#home" data-nav="home">Главная</a>
+      <a href="#catalog" data-nav="catalog">Каталог</a>
+      <a href="#favorites" data-nav="favorites">Избранное</a>
+      <button type="button" id="nav-profile" data-nav="profile">Профиль</button>
+    </nav>
+  </header>
+
+  <main id="view" tabindex="-1"></main>
+
+  <!-- Читальный зал -->
+  <section id="reader" class="reader" hidden aria-label="Читалка">
+    <div class="reader-bar">
+      <button type="button" class="icon-btn" id="r-close" title="Закрыть (Esc)" aria-label="Закрыть">✕</button>
+      <div class="reader-title" id="r-title"></div>
+      <div class="reader-tools">
+        <label class="goto" title="Перейти к странице">
+          <span class="sr">Перейти к странице</span>
+          <input id="r-page" type="number" min="1" inputmode="numeric" aria-label="Перейти к странице">
+          <span id="r-total" class="goto-total"></span>
+        </label>
+        <button type="button" class="icon-btn" id="r-zoom-out" title="Уменьшить" aria-label="Уменьшить">−</button>
+        <button type="button" class="icon-btn" id="r-zoom-in" title="Увеличить" aria-label="Увеличить">+</button>
+        <button type="button" class="icon-btn" id="r-fit" title="По ширине" aria-label="По ширине">⤢</button>
+        <button type="button" class="icon-btn" id="r-full" title="Во весь экран" aria-label="Во весь экран">⛶</button>
+        <button type="button" class="icon-btn" id="r-night" title="Ночной режим" aria-label="Ночной режим">☾</button>
+      </div>
+    </div>
+    <div class="reader-stage" id="r-stage">
+      <div class="reader-loading" id="r-loading">Открываем книгу…</div>
+      <canvas id="r-canvas"></canvas>
+    </div>
+    <div class="reader-foot">
+      <button type="button" class="btn ghost" id="r-prev">← Назад</button>
+      <div class="reader-progress"><div id="r-bar"></div></div>
+      <button type="button" class="btn ghost" id="r-next">Дальше →</button>
+    </div>
+  </section>
+
+  <!-- Окно входа -->
+  <div class="modal" id="m-auth" hidden role="dialog" aria-modal="true" aria-labelledby="auth-title">
+    <div class="modal-card narrow">
+      <button type="button" class="icon-btn modal-x" data-close aria-label="Закрыть">✕</button>
+      <h3 id="auth-title">Вход в аккаунт</h3>
+      <p class="muted">Прогресс чтения сохранится в аккаунте и будет одинаковым на всех ваших устройствах.</p>
+      <div class="tabs" role="tablist">
+        <button type="button" role="tab" class="tab active" data-tab="login">Войти</button>
+        <button type="button" role="tab" class="tab" data-tab="register" id="tab-register">Регистрация</button>
+      </div>
+      <form id="auth-form" autocomplete="on">
+        <label class="field">Ник (латиницей)
+          <input name="nick" autocomplete="username" autocapitalize="off" spellcheck="false" required minlength="3" maxlength="24" pattern="[A-Za-z0-9_]{3,24}">
+        </label>
+        <label class="field">Пароль
+          <input name="password" type="password" autocomplete="current-password" required minlength="6">
+        </label>
+        <p class="form-error" id="auth-error" role="alert"></p>
+        <button class="btn primary wide" type="submit" id="auth-submit">Войти</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Профиль -->
+  <div class="modal" id="m-profile" hidden role="dialog" aria-modal="true" aria-labelledby="profile-title">
+    <div class="modal-card">
+      <button type="button" class="icon-btn modal-x" data-close aria-label="Закрыть">✕</button>
+      <h3 id="profile-title">Профиль</h3>
+      <div id="profile-body"></div>
+    </div>
+  </div>
+
+  <!-- Управление библиотекой -->
+  <div class="modal" id="m-manage" hidden role="dialog" aria-modal="true" aria-labelledby="manage-title">
+    <div class="modal-card wide-card">
+      <button type="button" class="icon-btn modal-x" data-close aria-label="Закрыть">✕</button>
+      <h3 id="manage-title">Управление библиотекой</h3>
+      <form id="book-form" class="book-form">
+        <h4 id="form-heading">Добавить книгу</h4>
+        <div class="upload-row">
+          <div class="cover-preview" id="cover-preview" aria-hidden="true"><span>Обложка</span></div>
+          <div class="upload-actions">
+            <p class="file-name" id="pdf-name"><strong>PDF не выбран</strong></p>
+            <p class="muted small" id="pdf-hint">Число страниц и обложка определятся автоматически.</p>
+            <div class="row">
+              <label class="btn ghost file-btn">Загрузить PDF
+                <input type="file" id="pdf-input" accept="application/pdf,.pdf" hidden>
+              </label>
+              <label class="btn ghost file-btn">Заменить обложку
+                <input type="file" id="cover-input" accept="image/jpeg,image/png,image/webp" hidden>
+              </label>
+            </div>
+          </div>
+        </div>
+        <div class="grid2">
+          <label class="field">Название *<input name="title" required maxlength="300"></label>
+          <label class="field">Автор<input name="author" maxlength="200"></label>
+          <label class="field">Переводчик<input name="translator" maxlength="200"></label>
+          <label class="field">Издательство<input name="publisher" maxlength="200"></label>
+          <label class="field">Раздел *<input name="section" required maxlength="100" list="section-list" placeholder="Например: Акыда"></label>
+          <label class="field">Язык
+            <select name="language">
+              <option value="ru">Русский</option>
+              <option value="ar">Арабский</option>
+              <option value="en">English</option>
+            </select>
+          </label>
+        </div>
+        <datalist id="section-list"></datalist>
+        <label class="field">Описание<textarea name="description" rows="3" maxlength="5000"></textarea></label>
+        <input type="hidden" name="pages">
+        <div class="upload-progress" id="upload-progress" hidden><div id="upload-bar"></div><span id="upload-pct"></span></div>
+        <p class="form-error" id="book-error" role="alert"></p>
+        <div class="row">
+          <button class="btn primary" type="submit" id="book-submit">Сохранить книгу</button>
+          <button class="btn ghost" type="button" id="book-cancel" hidden>Отменить правку</button>
+        </div>
+      </form>
+      <h4 class="list-heading">Книги в библиотеке</h4>
+      <div id="manage-list" class="manage-list"></div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script type="module">
+    import * as pdfjsLib from '/vendor/pdfjs/pdf.min.mjs';
+    window.pdfjsLib = pdfjsLib;
+  </script>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
