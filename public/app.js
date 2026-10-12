@@ -376,7 +376,7 @@
     el.innerHTML =
       chip('section', '', 'Все разделы', total) +
       state.sections.map((s) => chip('section', s.name, s.name, s.count)).join('') +
-      '<span class="chips-sep"></span>' +
+      '<span class="chips-break"></span>' +
       chip('lang', '', 'Любой язык') +
       Object.entries(LANG_NAME).map(([k, v]) => chip('lang', k, v)).join('');
   }
@@ -729,7 +729,11 @@
 
     const base = page.getViewport({ scale: 1 });
     const avail = Math.max(200, stage.clientWidth - 28);
-    const scale = R.mode === 'fit' ? Math.min(avail / base.width, 3) : R.zoom;
+    // на широком экране вписываем страницу целиком, на телефоне — по ширине
+    const availH = Math.max(200, stage.clientHeight - 28);
+    const wide = stage.clientWidth >= 700 && stage.clientWidth > stage.clientHeight;
+    const fitScale = wide ? Math.min(avail / base.width, availH / base.height) : avail / base.width;
+    const scale = R.mode === 'fit' ? Math.min(fitScale, 3) : R.zoom;
     R.scale = scale;
     const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
     const vp = page.getViewport({ scale: scale * dpr });

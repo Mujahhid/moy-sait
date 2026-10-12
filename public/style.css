@@ -15,6 +15,8 @@
   --wood-1: #b78f5c;
   --wood-2: #9a7445;
   --wood-3: #7d5b33;
+  --maxw: 1120px;
+  --k: 1;
   --shelf-1: #e9dfca;
   --shelf-2: #dccfb3;
   --board-1: #dcc9a9;
@@ -76,7 +78,7 @@ button { cursor: pointer; }
 .top {
   position: sticky; top: 0; z-index: 20;
   display: flex; align-items: center; justify-content: space-between; gap: 16px;
-  padding: 12px max(20px, env(safe-area-inset-right)) 12px max(20px, env(safe-area-inset-left));
+  padding: 12px max(20px, env(safe-area-inset-right), calc((100% - var(--maxw)) / 2 + 20px)) 12px max(20px, env(safe-area-inset-left), calc((100% - var(--maxw)) / 2 + 20px));
   background: color-mix(in srgb, var(--paper) 88%, transparent);
   backdrop-filter: blur(10px);
   border-bottom: 1px solid var(--line);
@@ -92,7 +94,7 @@ button { cursor: pointer; }
 .nav a:hover, .nav button:hover { color: var(--ink); background: var(--paper-2); }
 .nav .active { color: var(--green); background: var(--paper-2); }
 
-main { max-width: 1120px; margin: 0 auto; padding: 0 20px calc(120px + env(safe-area-inset-bottom)); outline: none; }
+main { max-width: var(--maxw); margin: 0 auto; padding: 0 20px calc(120px + env(safe-area-inset-bottom)); outline: none; }
 
 /* ---------- Кнопки и поля ---------- */
 .btn {
@@ -158,7 +160,7 @@ main { max-width: 1120px; margin: 0 auto; padding: 0 20px calc(120px + env(safe-
 }
 .bookcase-track { scroll-padding-left: 22px; }
 .cover.spine {
-  --sh: var(--h, 220px);
+  --sh: calc(var(--h, 220px) * var(--k, 1));
   flex: 0 0 auto; height: var(--sh); width: calc(var(--sh) * 3 / 4.2); min-width: 0;
   scroll-snap-align: start; margin-bottom: 0; position: relative; z-index: 1;
 }
@@ -360,7 +362,7 @@ main { max-width: 1120px; margin: 0 auto; padding: 0 20px calc(120px + env(safe-
 .spineshelf .bookcase-row::after { height: 20px; border-radius: 0; box-shadow: inset 0 1px 0 rgba(255, 255, 255, .35); }
 .spineshelf .shelf-arrow { top: 46%; }
 .spine-book {
-  flex: 0 0 auto; position: relative; z-index: 1; width: var(--w, 44px); height: var(--h, 200px);
+  flex: 0 0 auto; position: relative; z-index: 1; width: calc(var(--w, 44px) * var(--k, 1)); height: calc(var(--h, 200px) * var(--k, 1));
   display: flex; align-items: center; padding: 14px 3px; border: 0; border-radius: 3px 3px 0 0;
   background: linear-gradient(90deg, rgba(255, 255, 255, .13), transparent 22%, rgba(0, 0, 0, .22)), var(--c, #2d4a3e);
   color: #f4ecd2; writing-mode: vertical-rl; text-align: start; cursor: pointer; scroll-snap-align: start;
@@ -375,7 +377,7 @@ main { max-width: 1120px; margin: 0 auto; padding: 0 20px calc(120px + env(safe-
 .spine-book:hover, .spine-book:focus-visible { transform: translateY(-6px); }
 .spine-book .sb-title {
   display: block; max-block-size: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  font: 600 .98rem/1.2 var(--font-display); letter-spacing: .01em; padding-block: 8px;
+  font: 600 calc(.98rem * var(--k, 1))/1.2 var(--font-display); letter-spacing: .01em; padding-block: 8px;
 }
 .spine-book .sb-title[lang="ar"] { font-family: var(--font-ar); font-size: 1.1rem; }
 
@@ -406,4 +408,39 @@ main { max-width: 1120px; margin: 0 auto; padding: 0 20px calc(120px + env(safe-
   .tabbar { gap: 2px; padding-inline: 6px; }
   .tabbar a, .tabbar button { font-size: .66rem; padding-inline: 1px; letter-spacing: -.01em; }
   .tabbar svg { width: 22px; height: 22px; }
+}
+
+/* ---------- Адаптация под экраны ---------- */
+.chips-break { flex-basis: 100%; height: 0; }
+@media (min-width: 1100px) {
+  .reader-foot { padding-inline: max(14px, calc((100% - 960px) / 2)); }
+}
+
+/* ноутбук и монитор: шире колонка, крупнее книги, нижняя панель — компактная «таблетка» */
+@media (min-width: 900px) {
+  .tabbar {
+    left: 50%; right: auto; bottom: 18px; transform: translateX(-50%); width: min(660px, calc(100% - 32px));
+    padding: 6px 10px; border: 1px solid var(--line); border-radius: 26px;
+    background: color-mix(in srgb, var(--paper) 94%, transparent); box-shadow: 0 10px 30px rgba(40, 30, 10, .16);
+  }
+  .toast { bottom: 100px; }
+  .hero { padding-top: 84px; }
+  .pub-grid { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+}
+@media (min-width: 1500px) {
+  :root { --maxw: 1360px; --k: 1.2; }
+  .grid { grid-template-columns: repeat(auto-fill, minmax(196px, 1fr)); gap: 26px 22px; }
+  body { font-size: 17px; }
+  .page-title, .shelf h2 { font-size: 2.2rem; }
+}
+@media (min-width: 1900px) {
+  :root { --maxw: 1640px; --k: 1.35; }
+  .grid { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+  .hero h1 { font-size: 7rem; }
+  .tabbar { width: min(760px, calc(100% - 32px)); }
+}
+/* низкие окна (ноутбук, ландшафт): компактнее шапка читалки и отступы */
+@media (max-height: 760px) and (min-width: 700px) {
+  .hero { padding: 40px 0 24px; }
+  .hero h1 { font-size: clamp(3rem, 7vw, 4.6rem); }
 }
