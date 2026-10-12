@@ -160,7 +160,59 @@
   const ORNAMENT = `<svg class="ornament" viewBox="0 0 120 14" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
     <path d="M2 7h38M80 7h38"/><path d="M60 1l5 6-5 6-5-6z"/><circle cx="46" cy="7" r="2"/><circle cx="74" cy="7" r="2"/></svg>`;
 
+  // Гость на главной видит только окно входа и ничего больше
+  function renderGuestHome() {
+    let mode = 'login';
+    view.innerHTML = `<section class="guest-home"><div class="guest-card">
+        <h1 class="guest-title" id="g-title">Вход в аккаунт</h1>
+        <p class="muted">Прогресс чтения сохранится в аккаунте и будет одинаковым на всех ваших устройствах.</p>
+        <div class="tabs" role="tablist">
+          <button type="button" role="tab" class="tab active" data-gtab="login">Войти</button>
+          ${state.registration ? '<button type="button" role="tab" class="tab" data-gtab="register">Регистрация</button>' : ''}
+        </div>
+        <form id="g-form" autocomplete="on">
+          <label class="field">Ник (латиницей)
+            <input name="nick" autocomplete="username" autocapitalize="off" spellcheck="false" required minlength="3" maxlength="24" pattern="[A-Za-z0-9_]{3,24}">
+          </label>
+          <label class="field">Пароль
+            <input name="password" type="password" autocomplete="current-password" required minlength="6">
+          </label>
+          <p class="form-error" id="g-error" role="alert"></p>
+          <button class="btn primary wide" type="submit" id="g-submit">Войти</button>
+        </form>
+      </div></section>`;
+    const form = $('#g-form');
+    $$('[data-gtab]', view).forEach((t) => (t.onclick = () => {
+      mode = t.dataset.gtab;
+      $$('[data-gtab]', view).forEach((x) => x.classList.toggle('active', x === t));
+      $('#g-title').textContent = mode === 'login' ? 'Вход в аккаунт' : 'Создать аккаунт';
+      $('#g-submit').textContent = mode === 'login' ? 'Войти' : 'Зарегистрироваться';
+      form.password.autocomplete = mode === 'login' ? 'current-password' : 'new-password';
+      $('#g-error').textContent = '';
+    }));
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = $('#g-submit');
+      $('#g-error').textContent = '';
+      btn.disabled = true;
+      try {
+        const { user } = await api('POST', mode === 'login' ? '/api/login' : '/api/register', {
+          nick: form.nick.value.trim(),
+          password: form.password.value,
+        });
+        state.me = user;
+        toast(mode === 'login' ? `С возвращением, ${user.nick}!` : `Добро пожаловать, ${user.nick}!`);
+        await render();
+      } catch (err) {
+        $('#g-error').textContent = err.message;
+        btn.disabled = false;
+      }
+    });
+    setTimeout(() => form.nick.focus({ preventScroll: true }), 30);
+  }
+
   async function renderHome() {
+    if (!state.me) return renderGuestHome();
     const [{ books }, prog] = await Promise.all([
       api('GET', '/api/books'),
       state.me ? api('GET', '/api/progress').catch(() => ({ items: [] })) : Promise.resolve({ items: [] }),
@@ -329,7 +381,7 @@
   async function renderCatalog() {
     view.innerHTML = `
       <div class="page-head"><h1 class="page-title">Каталог</h1></div>
-      <div class="toolbar">
+      <div class="search-sticky">
         <div class="search">
           <span class="glass" aria-hidden="true">⌕</span>
           <input id="q" type="text" enterkeyhint="search" autocomplete="off"
@@ -337,8 +389,9 @@
             aria-label="Поиск по каталогу">
           <button type="button" class="clear" id="q-clear" aria-label="Очистить поиск" ${state.q ? '' : 'hidden'}>✕</button>
         </div>
-        <div class="chips" id="chips"></div>
+        <p class="result-count" id="q-count" aria-live="polite"></p>
       </div>
+      <div class="toolbar"><div class="chips" id="chips"></div></div>
       <div id="spines"></div>
       <div id="grid" class="grid"></div>`;
 
@@ -361,6 +414,7 @@
     const { sections } = await api('GET', '/api/sections');
     state.sections = sections;
     if (state.section && !sections.some((s) => s.name === state.section)) state.section = '';
+    if (state.lang === 'en') state.lang = '';
     drawChips();
     await loadCatalogGrid();
   }
@@ -378,7 +432,7 @@
       state.sections.map((s) => chip('section', s.name, s.name, s.count)).join('') +
       '<span class="chips-break"></span>' +
       chip('lang', '', 'Любой язык') +
-      Object.entries(LANG_NAME).map(([k, v]) => chip('lang', k, v)).join('');
+      Object.entries(LANG_NAME).filter(([k]) => k !== 'en').map(([k, v]) => chip('lang', k, v)).join('');
   }
 
   let gridSeq = 0;
@@ -397,6 +451,8 @@
     }
     if (seq !== gridSeq || !$('#grid')) return;
     if (spinesCleanup) { spinesCleanup(); spinesCleanup = null; }
+    const filtered = !!(state.q.trim() || state.section || state.lang);
+    $('#q-count').textContent = !books.length ? '' : filtered ? `Найдено: ${books.length}` : `Всего: ${books.length} ${plural(books.length)}`;
     const sp = $('#spines');
     sp.innerHTML = books.length ? spinesBlock(books) : '';
     if (books.length) spinesCleanup = initShelf($('.bookcase', sp));

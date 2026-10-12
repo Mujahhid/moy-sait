@@ -444,3 +444,21 @@ main { max-width: var(--maxw); margin: 0 auto; padding: 0 20px calc(120px + env(
   .hero { padding: 40px 0 24px; }
   .hero h1 { font-size: clamp(3rem, 7vw, 4.6rem); }
 }
+
+/* ---------- Главная для гостя: только окно входа ---------- */
+.guest-home { min-height: calc(100vh - 220px); display: grid; place-items: center; padding: 24px 0; }
+.guest-card {
+  width: min(440px, 100%); padding: 32px 28px 28px; border-radius: 22px; border: 1px solid var(--line);
+  background: var(--card); box-shadow: var(--shadow);
+}
+.guest-title { margin: 0 0 6px; font: 600 2rem/1.15 var(--font-display); text-align: center; }
+.guest-card > .muted { margin: 0 0 4px; text-align: center; font-size: .95rem; }
+
+/* ---------- Поиск в каталоге: закреплён вверху, со счётчиком ---------- */
+.search-sticky {
+  position: sticky; top: 69px; z-index: 15; margin: 14px -20px 0; padding: 10px 20px 6px;
+  background: var(--paper); box-shadow: 0 8px 10px -9px rgba(40, 30, 10, .35);
+}
+.result-count { margin: 6px 2px 0; min-height: 1.3em; color: var(--muted); font-size: .88rem; }
+.search-sticky + .toolbar { margin-top: 4px; }
+@media (max-width: 640px) { .search-sticky { top: 57px; } }
