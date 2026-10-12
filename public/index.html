@@ -18,15 +18,33 @@
       <span class="brand-ar" lang="ar" dir="rtl">كتب العلوم</span>
       <span class="brand-ru">Книги знаний</span>
     </a>
-    <nav class="nav" aria-label="Разделы">
-      <a href="#home" data-nav="home">Главная</a>
-      <a href="#catalog" data-nav="catalog">Каталог</a>
-      <a href="#favorites" data-nav="favorites">Избранное</a>
-      <button type="button" id="nav-profile" data-nav="profile">Профиль</button>
-    </nav>
   </header>
 
   <main id="view" tabindex="-1"></main>
+
+  <!-- Нижняя панель вкладок -->
+  <nav class="tabbar" aria-label="Разделы">
+    <a href="#home" data-nav="home">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 11.2 12 4l8.5 7.2"/><path d="M5.5 10v9.5h13V10"/><path d="M10 19.5v-5h4v5"/></svg>
+      <span>Главная</span>
+    </a>
+    <a href="#publishers" data-nav="publishers">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V9l8-5 8 5v11"/><path d="M2.5 20h19"/><path d="M8 20v-6h8v6"/><path d="M12 9.5v.01"/></svg>
+      <span>Издательства</span>
+    </a>
+    <a href="#catalog" data-nav="catalog">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="6.5" height="6.5" rx="1.4"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.4"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.4"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.4"/></svg>
+      <span>Каталог</span>
+    </a>
+    <a href="#favorites" data-nav="favorites">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.4a4.3 4.3 0 0 1 7.5 2.4C19.5 15.4 12 20 12 20z"/></svg>
+      <span>Избранное</span>
+    </a>
+    <button type="button" id="nav-profile" data-nav="profile">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8.5" r="3.8"/><path d="M4.5 20c.6-3.8 3.7-6 7.5-6s6.9 2.2 7.5 6"/></svg>
+      <span>Профиль</span>
+    </button>
+  </nav>
 
   <!-- Читальный зал -->
   <section id="reader" class="reader" hidden aria-label="Читалка">

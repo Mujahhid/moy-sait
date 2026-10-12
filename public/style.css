@@ -15,6 +15,10 @@
   --wood-1: #b78f5c;
   --wood-2: #9a7445;
   --wood-3: #7d5b33;
+  --shelf-1: #e9dfca;
+  --shelf-2: #dccfb3;
+  --board-1: #dcc9a9;
+  --board-2: #cdb892;
   --font-body: 'Onest', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-display: 'Cormorant Garamond', 'Times New Roman', serif;
   --font-ar: 'Amiri', 'Traditional Arabic', serif;
@@ -36,6 +40,10 @@
     --wood-1: #6d5231;
     --wood-2: #573f24;
     --wood-3: #3f2c17;
+    --shelf-1: #2a322d;
+    --shelf-2: #222a25;
+    --board-1: #5b4a30;
+    --board-2: #483a24;
     --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px rgba(0, 0, 0, .35);
   }
 }
@@ -84,7 +92,7 @@ button { cursor: pointer; }
 .nav a:hover, .nav button:hover { color: var(--ink); background: var(--paper-2); }
 .nav .active { color: var(--green); background: var(--paper-2); }
 
-main { max-width: 1120px; margin: 0 auto; padding: 0 20px 80px; outline: none; }
+main { max-width: 1120px; margin: 0 auto; padding: 0 20px calc(120px + env(safe-area-inset-bottom)); outline: none; }
 
 /* ---------- Кнопки и поля ---------- */
 .btn {
@@ -291,7 +299,7 @@ main { max-width: 1120px; margin: 0 auto; padding: 0 20px 80px; outline: none; }
 .reader-progress > div { height: 100%; width: 0; background: var(--gold); transition: width .2s; }
 
 /* ---------- Уведомления ---------- */
-.toast { position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 20px); opacity: 0; pointer-events: none; z-index: 100; background: var(--ink); color: var(--paper); padding: 10px 18px; border-radius: 999px; font-size: .92rem; transition: opacity .2s, transform .2s; max-width: calc(100vw - 32px); text-align: center; }
+.toast { position: fixed; left: 50%; bottom: calc(96px + env(safe-area-inset-bottom)); transform: translate(-50%, 20px); opacity: 0; pointer-events: none; z-index: 100; background: var(--ink); color: var(--paper); padding: 10px 18px; border-radius: 999px; font-size: .92rem; transition: opacity .2s, transform .2s; max-width: calc(100vw - 32px); text-align: center; }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
 .toast.err { background: var(--danger); color: #fff; }
 
@@ -320,3 +328,82 @@ main { max-width: 1120px; margin: 0 auto; padding: 0 20px 80px; outline: none; }
 .icon-btn.active { border-color: var(--green); background: var(--paper-2); }
 .reader.night .icon-btn.active { border-color: #86b39e; background: #232a26; }
 .cover:focus-visible { outline-offset: 3px; }
+
+/* ---------- Нижняя панель вкладок ---------- */
+.tabbar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; display: flex; justify-content: center; gap: 4px;
+  padding: 8px max(10px, env(safe-area-inset-right)) calc(8px + env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
+  background: color-mix(in srgb, var(--paper) 92%, transparent); backdrop-filter: blur(12px);
+  border-top: 1px solid var(--line);
+}
+.tabbar a, .tabbar button {
+  flex: 1 1 0; max-width: 128px; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 3px;
+  padding: 8px 4px 7px; border: 0; background: none; border-radius: 18px; color: var(--muted);
+  text-decoration: none; font-size: .74rem; font-weight: 500; line-height: 1.15; transition: background .15s, color .15s;
+}
+.tabbar svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.tabbar span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tabbar a:hover, .tabbar button:hover { color: var(--ink); }
+.tabbar .active { background: var(--card); color: var(--ink); font-weight: 600; box-shadow: var(--shadow); }
+
+/* ---------- Полка с корешками (каталог) ---------- */
+.spines-wrap { margin: 4px 0 26px; }
+.spines-sub { margin: 0 0 12px; color: var(--muted); }
+.spineshelf {
+  --wood-1: var(--board-1); --wood-2: var(--board-2); --wood-3: var(--board-2);
+  border-radius: 22px; padding: 22px 0 0; overflow: hidden;
+  background: linear-gradient(180deg, var(--shelf-1), var(--shelf-2));
+  box-shadow: inset 0 0 38px rgba(70, 50, 20, .16), inset 0 2px 0 rgba(255, 255, 255, .35);
+}
+.spineshelf .bookcase-track { padding-top: 0; }
+.spineshelf .bookcase-row { gap: 6px; padding: 0 28px 22px; }
+.spineshelf .bookcase-row::after { height: 20px; border-radius: 0; box-shadow: inset 0 1px 0 rgba(255, 255, 255, .35); }
+.spineshelf .shelf-arrow { top: 46%; }
+.spine-book {
+  flex: 0 0 auto; position: relative; z-index: 1; width: var(--w, 44px); height: var(--h, 200px);
+  display: flex; align-items: center; padding: 14px 3px; border: 0; border-radius: 3px 3px 0 0;
+  background: linear-gradient(90deg, rgba(255, 255, 255, .13), transparent 22%, rgba(0, 0, 0, .22)), var(--c, #2d4a3e);
+  color: #f4ecd2; writing-mode: vertical-rl; text-align: start; cursor: pointer; scroll-snap-align: start;
+  box-shadow: 1px 0 0 rgba(0, 0, 0, .25), inset 0 3px 0 rgba(255, 255, 255, .12), inset 0 -3px 0 rgba(0, 0, 0, .18);
+  transition: transform .15s ease;
+}
+.spine-book::before, .spine-book::after {
+  content: ''; position: absolute; left: 0; right: 0; height: 2px; background: rgba(244, 236, 210, .35);
+}
+.spine-book::before { top: 8px; }
+.spine-book::after { bottom: 8px; }
+.spine-book:hover, .spine-book:focus-visible { transform: translateY(-6px); }
+.spine-book .sb-title {
+  display: block; max-block-size: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font: 600 .98rem/1.2 var(--font-display); letter-spacing: .01em; padding-block: 8px;
+}
+.spine-book .sb-title[lang="ar"] { font-family: var(--font-ar); font-size: 1.1rem; }
+
+/* ---------- Издательства ---------- */
+.pub-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; margin-top: 18px; }
+.pub {
+  display: flex; align-items: center; gap: 12px; text-align: start; padding: 16px; border-radius: var(--radius);
+  border: 1px solid var(--line); background: var(--card); box-shadow: var(--shadow); transition: transform .15s, border-color .15s;
+}
+.pub:hover { transform: translateY(-2px); border-color: var(--green); }
+.pub .pub-ico { flex: 0 0 auto; width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; background: var(--paper-2); color: var(--green); font: 700 1.2rem var(--font-display); }
+.pub b { display: block; font: 600 1.1rem/1.2 var(--font-display); overflow-wrap: anywhere; }
+.pub .sub { color: var(--muted); font-size: .85rem; }
+.back-link { display: inline-flex; align-items: center; gap: 6px; margin-bottom: 4px; padding: 6px 12px 6px 8px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--muted); font-size: .9rem; }
+.back-link:hover { color: var(--ink); border-color: var(--green); }
+
+@media (max-width: 380px) {
+  .tabbar a, .tabbar button { font-size: .68rem; padding-inline: 2px; }
+}
+
+.spines-title { font: 600 1.5rem var(--font-display); margin: 0 0 2px; }
+.spineshelf .shelf-arrow.prev { left: 10px; }
+.spineshelf .shelf-arrow.next { right: 10px; }
+.page-head .back-link + .page-title { margin-top: 10px; }
+
+.spineshelf .bookcase-track { scroll-snap-type: none; }
+@media (max-width: 440px) {
+  .tabbar { gap: 2px; padding-inline: 6px; }
+  .tabbar a, .tabbar button { font-size: .66rem; padding-inline: 1px; letter-spacing: -.01em; }
+  .tabbar svg { width: 22px; height: 22px; }
+}

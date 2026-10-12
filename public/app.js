@@ -29,6 +29,7 @@
     q: '',
     section: '',
     lang: '',
+    publisher: '',
     sections: [],
     afterLogin: null,
   };
@@ -123,26 +124,32 @@
   /* ================= Роутинг и страницы ================= */
   const view = $('#view');
 
+  const ROUTES = ['home', 'publishers', 'catalog', 'favorites'];
   function currentRoute() {
     const h = location.hash.replace(/^#/, '');
-    return ['home', 'catalog', 'favorites'].includes(h) ? h : 'home';
+    return ROUTES.includes(h) ? h : 'home';
   }
 
+  const plural = (n) => (n % 10 === 1 && n % 100 !== 11 ? 'книга' : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? 'книги' : 'книг');
+
   function updateNav() {
-    $$('.nav [data-nav]').forEach((el) => {
+    $$('.tabbar [data-nav]').forEach((el) => {
       el.classList.toggle('active', el.dataset.nav === state.route);
+      if (el.tagName === 'A') el.setAttribute('aria-current', el.dataset.nav === state.route ? 'page' : 'false');
     });
-    const p = $('#nav-profile');
-    p.textContent = state.me ? state.me.nick : 'Профиль';
+    $('#nav-profile span').textContent = state.me ? state.me.nick : 'Профиль';
     $('#tab-register').hidden = !state.registration;
   }
 
   async function render() {
     state.route = currentRoute();
+    if (state.route !== 'publishers') state.publisher = '';
     updateNav();
+    resetShelves();
     window.scrollTo(0, 0);
     try {
       if (state.route === 'home') await renderHome();
+      else if (state.route === 'publishers') await renderPublishers();
       else if (state.route === 'catalog') await renderCatalog();
       else await renderFavorites();
     } catch (e) {
@@ -184,26 +191,54 @@
     };
     const fb = $('#first-book');
     if (fb) fb.onclick = openManage;
-    initBookcase();
+    initShelves();
   }
 
-  /* ---------- Книжная полка: все книги в ряд, новые слева, прокрутка вбок ---------- */
-  function bookcaseHtml(books) {
-    return `<div class="bookcase" id="bookcase">
+  /* ---------- Полки: прокрутка вбок (колесо, перетаскивание, палец, стрелки) ---------- */
+  function shelfShell(rowHtml) {
+    return `<div class="bookcase">
       <button type="button" class="shelf-arrow prev" data-shelf="-1" aria-label="Прокрутить полку назад" hidden>‹</button>
-      <div class="bookcase-track" tabindex="0" role="list" aria-label="Книги на полке">
-        <div class="bookcase-row">${books.map((b, i) => `
-          <button type="button" role="listitem" class="cover spine" data-open="${b.id}" style="--h:${[220, 232, 210, 226][i % 4]}px"
-            title="${esc(b.title)}${b.author ? ' — ' + esc(b.author) : ''}" aria-label="Читать: ${esc(b.title)}">${coverHtml(b)}</button>`).join('')}
-        </div>
-      </div>
+      <div class="bookcase-track" tabindex="0" role="list" aria-label="Книги на полке"><div class="bookcase-row">${rowHtml}</div></div>
       <button type="button" class="shelf-arrow next" data-shelf="1" aria-label="Прокрутить полку вперёд" hidden>›</button>
     </div>`;
   }
 
-  function initBookcase() {
-    const root = $('#bookcase');
-    if (!root) return;
+  // главная: книги лицом, на деревянной доске
+  function bookcaseHtml(books) {
+    return shelfShell(books.map((b, i) => `
+      <button type="button" role="listitem" class="cover spine" data-open="${b.id}" style="--h:${[220, 232, 210, 226][i % 4]}px"
+        title="${esc(b.title)}${b.author ? ' — ' + esc(b.author) : ''}" aria-label="Читать: ${esc(b.title)}">${coverHtml(b)}</button>`).join(''));
+  }
+
+  // каталог, издательства, избранное: книги боком, названия на корешках
+  const SPINE_COLORS = ['#2d4a3e', '#4d2f4a', '#5a4630', '#6b4a1e', '#22345a', '#6b2a28', '#3b5b57', '#554226'];
+  function spineHtml(b) {
+    const h = hashStr(b.title);
+    const height = 150 + ((h >> 3) % 81);
+    const width = Math.max(36, Math.min(64, 32 + Math.round((b.pages || 0) / 22)));
+    const ar = /[؀-ۿ]/.test(b.title) ? ' lang="ar"' : '';
+    return `<button type="button" role="listitem" class="spine-book" data-open="${b.id}"
+      style="--c:${SPINE_COLORS[h % SPINE_COLORS.length]};--h:${height}px;--w:${width}px"
+      title="${esc(b.title)}${b.author ? ' — ' + esc(b.author) : ''}" aria-label="Читать: ${esc(b.title)}">
+      <span class="sb-title"${ar} dir="auto">${esc(b.title)}</span></button>`;
+  }
+  const spinesHtml = (books) => `<div class="spineshelf">${shelfShell(books.map(spineHtml).join(''))}</div>`;
+  const spinesBlock = (books) => `<div class="spines-wrap"><h2 class="spines-title">На полке</h2>
+    <p class="spines-sub">Нажмите на корешок, чтобы открыть книгу.</p>${spinesHtml(books)}</div>`;
+
+  let shelfCleanups = [];
+  let spinesCleanup = null;
+  function resetShelves() {
+    shelfCleanups.forEach((f) => f());
+    shelfCleanups = [];
+    if (spinesCleanup) { spinesCleanup(); spinesCleanup = null; }
+  }
+  function initShelves() {
+    resetShelves();
+    $$('.bookcase', view).forEach((root) => shelfCleanups.push(initShelf(root)));
+  }
+
+  function initShelf(root) {
     const track = $('.bookcase-track', root);
     const prev = $('.prev', root);
     const next = $('.next', root);
@@ -213,8 +248,7 @@
       next.hidden = max <= 4 || track.scrollLeft >= max - 4;
     };
     track.addEventListener('scroll', update, { passive: true });
-    window.addEventListener('resize', update);
-    // колесо мыши прокручивает полку вбок, пока она не упрётся в край
+    // колесо мыши листает полку вбок, пока она не упрётся в край
     track.addEventListener('wheel', (e) => {
       if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
       const max = track.scrollWidth - track.clientWidth;
@@ -230,17 +264,20 @@
       if (e.pointerType !== 'mouse' || e.button !== 0) return;
       drag = { x: e.clientX, left: track.scrollLeft, moved: false };
     });
-    window.addEventListener('pointermove', (e) => {
+    const onMove = (e) => {
       if (!drag) return;
       const dx = e.clientX - drag.x;
       if (Math.abs(dx) > 5) drag.moved = true;
       if (drag.moved) track.scrollLeft = drag.left - dx;
-    });
-    window.addEventListener('pointerup', () => {
+    };
+    const onUp = () => {
       if (drag?.moved) track.dataset.dragged = '1';
       drag = null;
       setTimeout(() => delete track.dataset.dragged, 0);
-    });
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('resize', update);
     // после перетаскивания не открываем книгу случайным кликом
     track.addEventListener('click', (e) => {
       if (track.dataset.dragged) { e.stopPropagation(); e.preventDefault(); }
@@ -252,6 +289,40 @@
     });
     update();
     requestAnimationFrame(update);
+    return () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('resize', update);
+    };
+  }
+
+  /* ================= Издательства ================= */
+  async function renderPublishers() {
+    if (state.publisher) {
+      const { books } = await api('GET', '/api/books?' + new URLSearchParams({ publisher: state.publisher }));
+      view.innerHTML = `<div class="page-head">
+          <button type="button" class="back-link" id="pub-back">← Все издательства</button>
+          <h1 class="page-title" dir="auto">${esc(state.publisher)}</h1>
+          <p class="page-sub">${books.length} ${plural(books.length)}</p></div>
+        ${books.length ? `${spinesBlock(books)}<div class="grid">${books.map(cardHtml).join('')}</div>`
+          : '<div class="empty">У этого издательства пока нет книг.</div>'}`;
+      $('#pub-back').onclick = () => { state.publisher = ''; render(); };
+      initShelves();
+      return;
+    }
+    const { publishers } = await api('GET', '/api/publishers');
+    view.innerHTML = `<div class="page-head"><h1 class="page-title">Издательства</h1>
+        <p class="page-sub">Выберите издательство, чтобы увидеть его книги.</p></div>
+      ${publishers.length
+        ? `<div class="pub-grid">${publishers.map((p) => `
+            <button type="button" class="pub" data-pub="${esc(p.name)}">
+              <span class="pub-ico" aria-hidden="true">${esc([...p.name][0].toUpperCase())}</span>
+              <span><b dir="auto">${esc(p.name)}</b><span class="sub">${p.count} ${plural(p.count)}</span></span>
+            </button>`).join('')}</div>`
+        : `<div class="empty">Здесь появятся издательства, когда вы укажете их у книг.${
+            state.me?.isAdmin ? '<br><button type="button" class="btn primary" id="first-book">Добавить книгу</button>' : ''}</div>`}`;
+    const fb = $('#first-book');
+    if (fb) fb.onclick = openManage;
   }
 
   let searchTimer;
@@ -268,6 +339,7 @@
         </div>
         <div class="chips" id="chips"></div>
       </div>
+      <div id="spines"></div>
       <div id="grid" class="grid"></div>`;
 
     const q = $('#q');
@@ -324,6 +396,10 @@
       return;
     }
     if (seq !== gridSeq || !$('#grid')) return;
+    if (spinesCleanup) { spinesCleanup(); spinesCleanup = null; }
+    const sp = $('#spines');
+    sp.innerHTML = books.length ? spinesBlock(books) : '';
+    if (books.length) spinesCleanup = initShelf($('.bookcase', sp));
     $('#grid').innerHTML = books.length
       ? books.map(cardHtml).join('')
       : `<div class="empty" style="grid-column:1/-1">${
@@ -342,9 +418,10 @@
     const { books } = await api('GET', '/api/favorites');
     view.innerHTML = `<div class="page-head"><h1 class="page-title">Избранное</h1></div>
       ${books.length
-        ? `<div class="grid" id="fav-grid">${books.map(cardHtml).join('')}</div>`
+        ? `${spinesBlock(books)}<div class="grid" id="fav-grid">${books.map(cardHtml).join('')}</div>`
         : `<div class="empty">В избранном пока пусто. Нажмите ♡ на обложке книги в каталоге.<br>
            <a class="btn ghost" href="#catalog">Перейти в каталог</a></div>`}`;
+    initShelves();
   }
 
   /* ================= Делегирование кликов ================= */
@@ -354,6 +431,13 @@
       state[chip.dataset.chip] = chip.dataset.val;
       drawChips();
       loadCatalogGrid();
+      return;
+    }
+    const pub = e.target.closest('[data-pub]');
+    if (pub) {
+      state.publisher = pub.dataset.pub;
+      window.scrollTo(0, 0);
+      render();
       return;
     }
     const fav = e.target.closest('[data-fav]');
@@ -472,6 +556,11 @@
   });
 
   /* ================= Профиль ================= */
+  // повторное нажатие на «Издательства» возвращает к списку
+  $('.tabbar [data-nav=publishers]').addEventListener('click', () => {
+    if (state.route === 'publishers' && state.publisher) { state.publisher = ''; render(); }
+  });
+
   $('#nav-profile').onclick = () => {
     if (!state.me) openAuth('login');
     else openProfile();
@@ -737,7 +826,7 @@
     reader.hidden = true;
     canvas.width = canvas.height = 0;
     if (!$$('.modal').some((m) => !m.hidden)) document.body.classList.remove('no-scroll');
-    if (['home', 'catalog', 'favorites'].includes(state.route)) render(); // обновить прогресс на карточках
+    if (ROUTES.includes(state.route)) render(); // обновить прогресс на карточках
   }
 
   window.addEventListener('popstate', () => { if (!reader.hidden) doCloseReader(); });
@@ -876,7 +965,7 @@
         toast('Книга удалена');
         if (M.edit?.id === b.id) resetForm();
         await refreshManageList();
-        if (['home', 'catalog', 'favorites'].includes(state.route)) render();
+        if (ROUTES.includes(state.route)) render();
       } catch (err) {
         toast(err.message, true);
       }
@@ -1012,7 +1101,7 @@
       toast(M.edit ? 'Изменения сохранены' : 'Книга добавлена');
       resetForm();
       await refreshManageList();
-      if (['home', 'catalog', 'favorites'].includes(state.route)) render();
+      if (ROUTES.includes(state.route)) render();
     } catch (ex) {
       err.textContent = ex.message;
     } finally {

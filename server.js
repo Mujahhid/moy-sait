@@ -631,9 +631,11 @@ route('GET', '/api/books', (ctx) => {
   const q = norm(ctx.query.get('q')).trim();
   const section = String(ctx.query.get('section') || '').trim();
   const lang = String(ctx.query.get('lang') || '').trim();
+  const publisher = norm(ctx.query.get('publisher')).trim();
   let rows = db.prepare('SELECT * FROM books ORDER BY created_at DESC, id DESC').all();
   if (section) rows = rows.filter((b) => b.section === section);
   if (lang) rows = rows.filter((b) => b.language === lang);
+  if (publisher) rows = rows.filter((b) => norm(b.publisher).trim() === publisher);
   if (q) {
     // SQLite LIKE не понимает регистр кириллицы и арабицы, поэтому ищем в JS
     const words = q.split(/\s+/).filter(Boolean);
@@ -650,6 +652,22 @@ route('GET', '/api/sections', (ctx) => {
     .prepare('SELECT section, COUNT(*) AS count FROM books GROUP BY section ORDER BY section COLLATE NOCASE')
     .all();
   sendJson(ctx.res, 200, { sections: rows.map((r) => ({ name: r.section, count: r.count })) });
+});
+
+// Издательства: уникальные названия (без учёта регистра) и число книг у каждого
+route('GET', '/api/publishers', (ctx) => {
+  const rows = db.prepare('SELECT publisher FROM books ORDER BY created_at DESC, id DESC').all();
+  const map = new Map();
+  for (const r of rows) {
+    const name = String(r.publisher || '').trim();
+    if (!name) continue;
+    const key = norm(name);
+    const cur = map.get(key) || { name, count: 0 };
+    cur.count += 1;
+    map.set(key, cur);
+  }
+  const publishers = [...map.values()].sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+  sendJson(ctx.res, 200, { publishers });
 });
 
 route('GET', '/api/books/:id', (ctx) => {
