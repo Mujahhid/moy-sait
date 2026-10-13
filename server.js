@@ -1,6 +1,7 @@
 // Сервер библиотеки. Только встроенные модули Node.js (>= 22.13), npm install не нужен.
 import http from 'node:http';
 import crypto from 'node:crypto';
+import zlib from 'node:zlib';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -25,6 +26,7 @@ const db = new DatabaseSync(path.join(DATA_DIR, 'library.db'));
 db.exec(`
   PRAGMA journal_mode = WAL;
   PRAGMA foreign_keys = ON;
+  PRAGMA synchronous = NORMAL;
 
   CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -75,7 +77,10 @@ db.exec(`
 
 const now = () => Date.now();
 const LANGS = ['ru', 'ar', 'en'];
-db.prepare('DELETE FROM sessions WHERE expires_at < ?').run(now());
+const cleanSessions = () => db.prepare('DELETE FROM sessions WHERE expires_at < ?').run(now());
+cleanSessions();
+setInterval(cleanSessions, 3600000).unref();
+db.exec('CREATE INDEX IF NOT EXISTS idx_books_created ON books(created_at DESC, id DESC)');
 
 // ---------- Вспомогательное ----------
 class HttpError extends Error {
@@ -85,12 +90,44 @@ class HttpError extends Error {
   }
 }
 
+// ---------- Сжатие ответов (brotli / gzip) ----------
+const COMPRESSIBLE = new Set(['.html', '.js', '.mjs', '.css', '.json', '.svg', '.wasm', '.txt', '.webmanifest']);
+const encCache = new Map(); // файл+версия+кодировка -> Promise<Buffer>
+
+function pickEncoding(req) {
+  const a = String(req?.headers?.['accept-encoding'] || '');
+  if (/\bbr\b/.test(a)) return 'br';
+  if (/\bgzip\b/.test(a)) return 'gzip';
+  return null;
+}
+
+function compressAsync(buf, enc) {
+  return new Promise((resolve, reject) => {
+    const cb = (e, out) => (e ? reject(e) : resolve(out));
+    if (enc === 'br') {
+      zlib.brotliCompress(buf, { params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 9 } }, cb);
+    } else {
+      zlib.gzip(buf, { level: 9 }, cb);
+    }
+  });
+}
+
 function sendJson(res, status, obj, headers = {}) {
-  const body = JSON.stringify(obj);
+  let body = Buffer.from(JSON.stringify(obj));
+  const extra = {};
+  const enc = body.length > 1024 ? pickEncoding(res.req) : null;
+  if (enc) {
+    body = enc === 'br'
+      ? zlib.brotliCompressSync(body, { params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 4 } })
+      : zlib.gzipSync(body, { level: 6 });
+    extra['Content-Encoding'] = enc;
+  }
   res.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
-    'Content-Length': Buffer.byteLength(body),
+    'Content-Length': body.length,
     'Cache-Control': 'no-store',
+    Vary: 'Accept-Encoding',
+    ...extra,
     ...headers,
   });
   res.end(body);
@@ -239,18 +276,38 @@ function sendFile(req, res, file, { type, cache = 'public, max-age=3600', header
   }
   if (!st.isFile()) return sendJson(res, 404, { error: 'Не найдено' });
 
-  const etag = `W/"${st.size.toString(16)}-${Math.floor(st.mtimeMs).toString(16)}"`;
+  const ext = path.extname(file).toLowerCase();
+  const enc = !req.headers.range && !type && COMPRESSIBLE.has(ext) && st.size > 1024 ? pickEncoding(req) : null;
+  const etag = `W/"${st.size.toString(16)}-${Math.floor(st.mtimeMs).toString(16)}${enc ? '-' + enc : ''}"`;
   const base = {
     'Content-Type': type || MIME[path.extname(file).toLowerCase()] || 'application/octet-stream',
     'Accept-Ranges': 'bytes',
     'Cache-Control': cache,
     ETag: etag,
     'Last-Modified': st.mtime.toUTCString(),
+    ...(COMPRESSIBLE.has(ext) ? { Vary: 'Accept-Encoding' } : {}),
     ...headers,
   };
   if (req.headers['if-none-match'] === etag) {
     res.writeHead(304, base);
     return res.end();
+  }
+  if (enc) {
+    const key = `${file}|${st.size}|${st.mtimeMs}|${enc}`;
+    let job = encCache.get(key);
+    if (!job) {
+      job = fs.promises.readFile(file).then((buf) => compressAsync(buf, enc));
+      encCache.set(key, job);
+      job.catch(() => encCache.delete(key));
+    }
+    job.then(
+      (buf) => {
+        res.writeHead(200, { ...base, 'Content-Encoding': enc, 'Content-Length': buf.length });
+        res.end(req.method === 'HEAD' ? undefined : buf);
+      },
+      () => sendJson(res, 500, { error: 'Ошибка чтения файла' })
+    );
+    return;
   }
 
   let start = 0;
@@ -298,8 +355,9 @@ function serveStatic(req, res, pathname) {
   if (file !== PUBLIC_DIR && !file.startsWith(PUBLIC_DIR + path.sep)) {
     return sendJson(res, 403, { error: 'Нет доступа' });
   }
-  const isHtml = file.endsWith('.html');
-  sendFile(req, res, file, { cache: isHtml ? 'no-cache' : 'public, max-age=3600' });
+  const longCache = file.startsWith(path.join(PUBLIC_DIR, 'vendor') + path.sep);
+  // свой интерфейс (html/js/css) всегда сверяем по ETag — правки видны сразу; pdf.js кэшируем на месяц
+  sendFile(req, res, file, { cache: longCache ? 'public, max-age=2592000' : 'no-cache' });
 }
 
 // ---------- Потоковый разбор multipart/form-data ----------
@@ -525,7 +583,16 @@ function getBook(id) {
   return db.prepare('SELECT * FROM books WHERE id = ?').get(Number(id));
 }
 
-function bookToJson(b, userId) {
+// избранное и прогресс пользователя одним проходом, а не по запросу на каждую книгу
+function userMaps(userId) {
+  if (!userId) return null;
+  return {
+    fav: new Set(db.prepare('SELECT book_id FROM favorites WHERE user_id = ?').all(userId).map((r) => r.book_id)),
+    prog: new Map(db.prepare('SELECT book_id, page, updated_at FROM progress WHERE user_id = ?').all(userId).map((r) => [r.book_id, r])),
+  };
+}
+
+function bookToJson(b, userId, maps) {
   const out = {
     id: b.id,
     title: b.title,
@@ -541,8 +608,9 @@ function bookToJson(b, userId) {
     createdAt: b.created_at,
   };
   if (userId) {
-    out.favorite = !!db.prepare('SELECT 1 FROM favorites WHERE user_id = ? AND book_id = ?').get(userId, b.id);
-    const p = db.prepare('SELECT page, updated_at FROM progress WHERE user_id = ? AND book_id = ?').get(userId, b.id);
+    const m = maps || userMaps(userId);
+    out.favorite = m.fav.has(b.id);
+    const p = m.prog.get(b.id);
     out.progress = p ? { page: p.page, updatedAt: p.updated_at } : null;
   }
   return out;
@@ -644,7 +712,8 @@ route('GET', '/api/books', (ctx) => {
       return words.every((w) => hay.includes(w));
     });
   }
-  sendJson(ctx.res, 200, { books: rows.map((b) => bookToJson(b, ctx.user?.id)) });
+  const maps = userMaps(ctx.user?.id);
+  sendJson(ctx.res, 200, { books: rows.map((b) => bookToJson(b, ctx.user?.id, maps)) });
 });
 
 route('GET', '/api/sections', (ctx) => {
@@ -783,7 +852,8 @@ route('GET', '/api/favorites', (ctx) => {
        WHERE f.user_id = ? ORDER BY f.created_at DESC`
     )
     .all(ctx.user.id);
-  sendJson(ctx.res, 200, { books: rows.map((b) => bookToJson(b, ctx.user.id)) });
+  const maps = userMaps(ctx.user.id);
+  sendJson(ctx.res, 200, { books: rows.map((b) => bookToJson(b, ctx.user.id, maps)) });
 });
 
 route('PUT', '/api/favorites/:id', (ctx) => {
@@ -811,8 +881,9 @@ route('GET', '/api/progress', (ctx) => {
        JOIN books b ON b.id = p.book_id WHERE p.user_id = ? ORDER BY p.updated_at DESC`
     )
     .all(ctx.user.id);
+  const maps = userMaps(ctx.user.id);
   sendJson(ctx.res, 200, {
-    items: rows.map((r) => ({ page: r.p_page, updatedAt: r.p_updated, book: bookToJson(r, ctx.user.id) })),
+    items: rows.map((r) => ({ page: r.p_page, updatedAt: r.p_updated, book: bookToJson(r, ctx.user.id, maps) })),
   });
 });
 

@@ -127,12 +127,14 @@
   const ROUTES = ['home', 'publishers', 'catalog', 'favorites'];
   function currentRoute() {
     const h = location.hash.replace(/^#/, '');
-    return ROUTES.includes(h) ? h : 'home';
+    const r = ROUTES.includes(h) ? h : 'home';
+    return r === 'home' && state.me ? 'catalog' : r; // «Главная» — только окно входа для гостя
   }
 
   const plural = (n) => (n % 10 === 1 && n % 100 !== 11 ? 'книга' : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? 'книги' : 'книг');
 
   function updateNav() {
+    $('.tabbar [data-nav=home]').hidden = !!state.me;
     $$('.tabbar [data-nav]').forEach((el) => {
       el.classList.toggle('active', el.dataset.nav === state.route);
       if (el.tagName === 'A') el.setAttribute('aria-current', el.dataset.nav === state.route ? 'page' : 'false');
@@ -143,6 +145,9 @@
 
   async function render() {
     state.route = currentRoute();
+    if (state.me && location.hash !== '#' + state.route && !['publishers', 'favorites'].includes(state.route)) {
+      history.replaceState(null, '', '#' + state.route);
+    }
     if (state.route !== 'publishers') state.publisher = '';
     updateNav();
     resetShelves();
@@ -155,6 +160,8 @@
     } catch (e) {
       view.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
     }
+    // вошедшему пользователю заранее (в простое) подгружаем читалку, чтобы первая книга открывалась мгновенно
+    if (state.me) (window.requestIdleCallback || ((f) => setTimeout(f, 1500)))(() => loadPdfjs().catch(() => {}));
   }
 
   const ORNAMENT = `<svg class="ornament" viewBox="0 0 120 14" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
@@ -430,8 +437,6 @@
     el.innerHTML =
       chip('section', '', 'Все разделы', total) +
       state.sections.map((s) => chip('section', s.name, s.name, s.count)).join('') +
-      '<span class="chips-break"></span>' +
-      chip('lang', '', 'Любой язык') +
       Object.entries(LANG_NAME).filter(([k]) => k !== 'en').map(([k, v]) => chip('lang', k, v)).join('');
   }
 
@@ -484,7 +489,9 @@
   document.addEventListener('click', async (e) => {
     const chip = e.target.closest('[data-chip]');
     if (chip) {
-      state[chip.dataset.chip] = chip.dataset.val;
+      // повторный клик по языку снимает фильтр
+      const same = chip.dataset.chip === 'lang' && state.lang === chip.dataset.val;
+      state[chip.dataset.chip] = same ? '' : chip.dataset.val;
       drawChips();
       loadCatalogGrid();
       return;
@@ -675,6 +682,7 @@
       state.me = null;
       closeModal($('#m-profile'));
       toast('Вы вышли из аккаунта');
+      history.replaceState(null, '', '#home');
       render();
     };
     $('#pw-form').addEventListener('submit', async (ev) => {
@@ -703,7 +711,18 @@
   const canvas = $('#r-canvas');
   const pageInput = $('#r-page');
 
-  if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER;
+  // pdf.js (≈500 КБ) подгружается только когда нужна читалка или загрузка PDF, а не на каждой странице
+  let pdfjsPromise = null;
+  function loadPdfjs() {
+    if (!pdfjsPromise) {
+      pdfjsPromise = import('/vendor/pdfjs/pdf.min.mjs').then((m) => {
+        m.GlobalWorkerOptions.workerSrc = PDFJS_WORKER;
+        return m;
+      });
+      pdfjsPromise.catch(() => { pdfjsPromise = null; });
+    }
+    return pdfjsPromise;
+  }
 
   function setNight(on) {
     R.night = on;
@@ -719,15 +738,12 @@
   }
 
   async function openReader(id) {
-    if (!window.pdfjsLib) {
-      toast('Не удалось загрузить модуль чтения (pdf.js). Проверьте соединение.', true);
-      return;
-    }
-    let book;
+    // модуль чтения и данные книги грузим одновременно
+    let pdfjsLib, book;
     try {
-      ({ book } = await api('GET', `/api/books/${id}`));
+      [pdfjsLib, { book }] = await Promise.all([loadPdfjs(), api('GET', `/api/books/${id}`)]);
     } catch (e) {
-      toast(e.message, true);
+      toast(e instanceof TypeError ? 'Не удалось загрузить модуль чтения (pdf.js). Проверьте соединение.' : e.message, true);
       return;
     }
     Object.assign(R, { book, doc: null, page: 1, total: book.pages || 0, task: null });
@@ -742,6 +758,7 @@
     canvas.width = canvas.height = 0;
     canvas.style.width = canvas.style.height = '0';
     showLoading('Открываем книгу…');
+    $('#r-prev').disabled = $('#r-next').disabled = pageInput.disabled = true; // пока книга грузится — листать нельзя
     reader.hidden = false;
     document.body.classList.add('no-scroll');
     history.pushState({ reader: true }, '');
@@ -813,10 +830,12 @@
     canvas.style.height = `${off.height / dpr}px`;
     canvas.getContext('2d').drawImage(off, 0, 0);
     showLoading('');
+    if (R.page < R.total) doc.getPage(R.page + 1).catch(() => {}); // прогреваем следующую страницу
   }
 
   function updateReaderUi() {
     pageInput.value = R.page;
+    pageInput.disabled = false;
     $('#r-prev').disabled = R.page <= 1;
     $('#r-next').disabled = R.page >= R.total;
     $('#r-bar').style.width = R.total ? `${(R.page / R.total) * 100}%` : '0';
@@ -1068,7 +1087,10 @@
     if (!form.title.value.trim()) {
       form.title.value = file.name.replace(/\.pdf$/i, '').replace(/[_]+/g, ' ').trim();
     }
-    if (!window.pdfjsLib) {
+    let pdfjsLib;
+    try {
+      pdfjsLib = await loadPdfjs();
+    } catch {
       $('#pdf-hint').textContent = 'Не удалось загрузить pdf.js — число страниц и обложка не определены.';
       return;
     }
