@@ -103,7 +103,7 @@
     if (!b.progress) return '';
     const p = b.progress.page;
     const pct = b.pages > 0 ? Math.min(100, Math.round((p / b.pages) * 100)) : 0;
-    const label = isFinished(b) ? 'Прочитано' : b.pages > 0 ? `стр. ${p} из ${b.pages}` : `стр. ${p}`;
+    const label = isFinished(b) ? 'Прочитано · 100%' : b.pages > 0 ? `стр. ${p} из ${b.pages} · ${pct}%` : `стр. ${p}`;
     return `<div class="bar" aria-hidden="true"><i style="width:${pct}%"></i></div><div class="pagelabel">${label}</div>`;
   }
 
@@ -384,10 +384,45 @@
     if (fb) fb.onclick = openManage;
   }
 
+  function continueCard(b) {
+    const p = b.progress.page;
+    const pct = b.pages > 0 ? Math.min(100, Math.round((p / b.pages) * 100)) : 0;
+    const done = isFinished(b);
+    return `<article class="cr-card" role="listitem" data-open="${b.id}">
+      <div class="cr-cover">${b.hasCover ? `<img src="/api/books/${b.id}/cover?v=${b.version}" alt="" loading="lazy" draggable="false">` : `<div class="cr-ph" style="background:${PH_COLORS[hashStr(b.title) % PH_COLORS.length][0]}"></div>`}</div>
+      <div class="cr-body">
+        <h3 dir="auto">${esc(b.title)}</h3>
+        ${b.author ? `<p class="cr-author" dir="auto">${esc(b.author)}</p>` : ''}
+        <p class="cr-page">${b.pages > 0 ? `Страница ${p} из ${b.pages} • ${done ? 100 : pct}%` : `Страница ${p}`}</p>
+        <div class="cr-bar" aria-hidden="true"><i style="width:${done ? 100 : pct}%"></i></div>
+      </div>
+      <button type="button" class="cr-btn" data-open="${b.id}">${done ? 'Читать снова' : 'Продолжить чтение'}</button>
+    </article>`;
+  }
+  let crCleanup = null;
+  async function loadContinue() {
+    const box = $('#continue');
+    if (!box) return;
+    if (crCleanup) { crCleanup(); crCleanup = null; }
+    if (!state.me) { box.innerHTML = ''; return; }
+    let items = [];
+    try { ({ items } = await api('GET', '/api/progress')); } catch { return; }
+    if (!$('#continue')) return;
+    items = items.filter((i) => i.book);
+    if (!items.length) { box.innerHTML = ''; return; }
+    box.innerHTML = `<section class="cr-wrap"><h2 class="cr-title">Продолжить чтение</h2>
+      <p class="cr-sub">Книга откроется на той странице, где вы остановились.</p>
+      ${shelfShell(items.map((i) => continueCard(i.book)).join(''))}</section>`;
+    const root = $('.bookcase', box);
+    root.classList.add('cr');
+    crCleanup = initShelf(root);
+  }
+
   let searchTimer;
   async function renderCatalog() {
     view.innerHTML = `
       <div class="page-head"><h1 class="page-title">Каталог</h1></div>
+      <div id="continue"></div>
       <div class="search-sticky">
         <div class="search">
           <span class="glass" aria-hidden="true">⌕</span>
@@ -423,6 +458,7 @@
     if (state.section && !sections.some((s) => s.name === state.section)) state.section = '';
     if (state.lang === 'en') state.lang = '';
     drawChips();
+    loadContinue();
     await loadCatalogGrid();
   }
 
@@ -624,6 +660,26 @@
     if (state.route === 'publishers' && state.publisher) { state.publisher = ''; render(); }
   });
 
+  /* ---------- Тема: светлая / тёмная ---------- */
+  const themeBtn = $('#theme-toggle');
+  const sysDark = matchMedia('(prefers-color-scheme: dark)');
+  const isDarkNow = () => (document.documentElement.dataset.theme || (sysDark.matches ? 'dark' : 'light')) === 'dark';
+  function paintTheme() {
+    const dark = isDarkNow();
+    themeBtn.dataset.mode = dark ? 'dark' : 'light';
+    const tt = dark ? 'Включить светлую тему' : 'Включить тёмную тему'; themeBtn.title = tt; themeBtn.setAttribute('aria-label', tt);
+    const m = document.querySelector('meta[name=theme-color]');
+    if (m) m.content = dark ? '#151a17' : '#f4efe4';
+  }
+  themeBtn.onclick = () => {
+    const next = isDarkNow() ? 'light' : 'dark';
+    document.documentElement.dataset.theme = next;
+    try { localStorage.setItem('theme', next); } catch { /* ok */ }
+    paintTheme();
+  };
+  sysDark.addEventListener?.('change', paintTheme);
+  paintTheme();
+
   $('#nav-profile').onclick = () => {
     if (!state.me) openAuth('login');
     else openProfile();
@@ -777,6 +833,7 @@
       pageInput.max = R.total;
       $('#r-total').textContent = `/ ${R.total}`;
       await goTo(R.page, true);
+      if (state.me && !book.progress && session === R.session) { R.dirty = true; flushProgress(); } // книга сразу попадает в «Продолжить чтение»
     } catch (e) {
       if (loadingTask && R.loading !== loadingTask) { try { loadingTask.destroy(); } catch { /* ok */ } }
       if (session !== R.session || reader.hidden) return;
