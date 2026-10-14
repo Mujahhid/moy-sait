@@ -102,29 +102,224 @@
   function progressHtml(b) {
     if (!b.progress) return '';
     const p = b.progress.page;
-    const pct = b.pages > 0 ? Math.min(100, Math.round((p / b.pages) * 100)) : 0;
-    const label = isFinished(b) ? 'Прочитано · 100%' : b.pages > 0 ? `стр. ${p} из ${b.pages} · ${pct}%` : `стр. ${p}`;
-    return `<div class="bar" aria-hidden="true"><i style="width:${pct}%"></i></div><div class="pagelabel">${label}</div>`;
+    const pct = isFinished(b) ? 100 : b.pages > 0 ? Math.min(100, Math.round((p / b.pages) * 100)) : 0;
+    const label = b.pages > 0 ? `Страница ${p} из ${b.pages} • ${pct}%` : `Страница ${p}`;
+    return `<div class="pagelabel">${label}</div><div class="bar" aria-hidden="true"><i style="width:${pct}%"></i></div>`;
+  }
+
+  function offBtnHtml(b) {
+    if (!state.me || !off.ok) return '';
+    const busy = off.busy.get(b.id);
+    const at = `data-off="${b.id}" data-v="${b.version}" data-cover="${b.hasCover ? 1 : 0}"`;
+    if (busy != null) return `<button type="button" class="off-btn busy" ${at} disabled>Скачиваем… ${busy}%</button>`;
+    if (isOffline(b)) return `<button type="button" class="off-btn done" ${at}>✓ Доступна офлайн</button>`;
+    return `<button type="button" class="off-btn" ${at}>↓ Скачать для офлайн-чтения</button>`;
   }
 
   function cardHtml(b) {
+    const info = [b.section, LANG_NAME[b.language], b.pages ? `${b.pages} стр.` : ''].filter(Boolean).join(' · ');
+    const btn = !b.progress ? 'Читать' : isFinished(b) ? 'Читать снова' : 'Продолжить чтение';
     return `<article class="card" data-card="${b.id}">
       <button type="button" class="cover" data-open="${b.id}" aria-label="Читать: ${esc(b.title)}">${coverHtml(b)}</button>
       <button type="button" class="fav ${b.favorite ? 'on' : ''}" data-fav="${b.id}" aria-pressed="${!!b.favorite}"
         aria-label="${b.favorite ? 'Убрать из избранного' : 'В избранное'}">${b.favorite ? '♥' : '♡'}</button>
       <div class="meta" data-open="${b.id}" style="cursor:pointer">
         <h3 dir="auto">${esc(b.title)}</h3>
+        <p class="cinfo">${esc(info)}</p>
         ${b.author ? `<p class="author" dir="auto">${esc(b.author)}</p>` : ''}
-        <div class="tags"><span class="tag">${LANG[b.language] || ''}</span><span class="tag">${esc(b.section)}</span></div>
         ${progressHtml(b)}
+      </div>
+      <div class="actions">
+        <button type="button" class="read-btn" data-open="${b.id}">${btn}</button>
+        <span data-off-slot="${b.id}">${offBtnHtml(b)}</span>
       </div>
     </article>`;
   }
 
+  /* ================= Офлайн: скачанные книги ================= */
+  const PDF_CACHE = 'pdf-v1';
+  const off = { ok: 'caches' in window, ids: new Map(), busy: new Map(), bulk: null };
+  const pdfUrl = (b) => `/api/books/${b.id}/pdf?v=${b.version}`;
+  const isOffline = (b) => off.ids.has(b.id) && off.ids.get(b.id).v === String(b.version);
+  const getSet = (k, def) => { try { const v = localStorage.getItem('off_' + k); return v == null ? def : v === '1'; } catch { return def; } };
+  const setSet = (k, v) => { try { localStorage.setItem('off_' + k, v ? '1' : '0'); } catch { /* ok */ } };
+  const netAllowed = () => getSet('mobile', true) || navigator.connection?.type !== 'cellular';
+  const fmtMB = (n) => (n >= 1048576 ? (n / 1048576).toFixed(n >= 10485760 ? 0 : 1) + ' МБ' : Math.max(1, Math.round(n / 1024)) + ' КБ');
+
+  async function offlineScan() {
+    if (!off.ok) return;
+    try {
+      const c = await caches.open(PDF_CACHE);
+      const keys = await c.keys();
+      const m = new Map();
+      for (const k of keys) {
+        const x = /\/api\/books\/(\d+)\/pdf\?v=(\w+)/.exec(k.url);
+        if (!x) continue;
+        const r = await c.match(k);
+        m.set(Number(x[1]), { v: x[2], size: Number(r?.headers.get('content-length')) || 0 });
+      }
+      off.ids = m;
+    } catch { /* ok */ }
+  }
+
+  function paintOff(id) {
+    $$(`[data-off-slot="${id}"]`).forEach((slot) => {
+      const d = slot.querySelector('[data-off]')?.dataset;
+      if (d) slot.innerHTML = offBtnHtml({ id, version: d.v, hasCover: d.cover === '1' });
+    });
+    if (state.route === 'offline') drawOffline();
+  }
+
+  async function downloadBook(b) {
+    if (!off.ok || off.busy.has(b.id) || isOffline(b)) return true;
+    if (!state.me) { openAuth('login'); return false; }
+    off.busy.set(b.id, 0);
+    paintOff(b.id);
+    try {
+      const res = await fetch(pdfUrl(b), { credentials: 'same-origin' });
+      if (!res.ok) throw new Error('Не удалось скачать книгу');
+      const total = Number(res.headers.get('content-length')) || 0;
+      const rd = res.body.getReader();
+      const chunks = [];
+      let got = 0;
+      let last = -1;
+      for (;;) {
+        const { done, value } = await rd.read();
+        if (done) break;
+        chunks.push(value);
+        got += value.length;
+        const pct = total ? Math.min(99, Math.floor((got / total) * 100)) : 0;
+        if (pct !== last) { last = pct; off.busy.set(b.id, pct); $$(`[data-off="${b.id}"]`).forEach((el) => { el.textContent = `Скачиваем… ${pct}%`; }); }
+      }
+      const blob = new Blob(chunks, { type: 'application/pdf' });
+      const c = await caches.open(PDF_CACHE);
+      for (const k of await c.keys()) if (new RegExp(`/api/books/${b.id}/pdf\\?`).test(k.url)) await c.delete(k);
+      await c.put(pdfUrl(b), new Response(blob, { headers: { 'Content-Type': 'application/pdf', 'Content-Length': String(blob.size) } }));
+      off.ids.set(b.id, { v: String(b.version), size: blob.size });
+      // чтобы книга открывалась без сети: данные книги, обложка и читалка тоже в кэше
+      fetch(`/api/books/${b.id}`).catch(() => {});
+      if (b.hasCover) fetch(`/api/books/${b.id}/cover?v=${b.version}`).catch(() => {});
+      loadPdfjs().then((l) => fetch(PDFJS_WORKER).catch(() => l)).catch(() => {});
+      try { navigator.storage?.persist?.(); } catch { /* ok */ }
+      return true;
+    } catch (e) {
+      toast(navigator.onLine ? e.message || 'Не удалось скачать книгу' : 'Нет интернета — книгу не скачать', true);
+      return false;
+    } finally {
+      off.busy.delete(b.id);
+      paintOff(b.id);
+    }
+  }
+
+  async function removeOffline(id) {
+    try {
+      const c = await caches.open(PDF_CACHE);
+      for (const k of await c.keys()) if (new RegExp(`/api/books/${id}/pdf\\?`).test(k.url)) await c.delete(k);
+    } catch { /* ok */ }
+    off.ids.delete(id);
+    paintOff(id);
+  }
+
+  async function downloadMany(list) {
+    if (off.bulk) return;
+    const todo = list.filter((b) => !isOffline(b));
+    if (!todo.length) return;
+    off.bulk = { done: 0, total: todo.length, stop: false };
+    drawOffline();
+    for (const b of todo) {
+      if (off.bulk.stop || !netAllowed()) break;
+      const ok = await downloadBook(b);
+      if (!ok) break;
+      off.bulk.done++;
+      drawOffline();
+    }
+    off.bulk = null;
+    drawOffline();
+  }
+
+  async function autoDownloadNew() {
+    if (!off.ok || !state.me || !getSet('auto', false) || !navigator.onLine || !netAllowed()) return;
+    try {
+      await offlineScan();
+      const { books } = await api('GET', '/api/books');
+      state.offBooks = books;
+      downloadMany(books);
+    } catch { /* ok */ }
+  }
+
+  async function renderOffline() {
+    view.innerHTML = `<div class="page-head"><h1 class="page-title">Офлайн-чтение</h1>
+      <p class="page-sub">Скачайте книги на устройство, чтобы читать их без интернета.</p></div><div id="off-body"></div>`;
+    if (!state.me) { $('#off-body').innerHTML = '<div class="empty">Войдите в аккаунт, чтобы скачивать книги.</div>'; return; }
+    if (!off.ok) { $('#off-body').innerHTML = '<div class="empty">Этот браузер не умеет хранить книги офлайн.</div>'; return; }
+    await offlineScan();
+    ({ books: state.offBooks } = await api('GET', '/api/books'));
+    drawOffline();
+  }
+
+  function drawOffline() {
+    const box = $('#off-body');
+    if (!box || state.route !== 'offline' || !state.me || !state.offBooks) return;
+    const books = state.offBooks;
+    const have = books.filter(isOffline);
+    const missing = books.length - have.length;
+    const size = have.reduce((n, b) => n + (off.ids.get(b.id)?.size || 0), 0);
+    const bulk = off.bulk;
+    const noType = navigator.connection && navigator.connection.type === undefined || !navigator.connection;
+    box.innerHTML = `
+      <section class="off-card">
+        <h2>Вся библиотека без интернета</h2>
+        <p>${!books.length ? 'В библиотеке пока нет книг.' : bulk ? `Скачиваем: ${bulk.done} из ${bulk.total}…` : missing ? `Не скачано: ${missing} из ${books.length}` : `Все книги скачаны (${books.length}) — ${fmtMB(size)}`}</p>
+        ${bulk ? `<div class="bar"><i style="width:${Math.round((bulk.done / bulk.total) * 100)}%"></i></div>` : ''}
+        <div class="off-actions">
+          ${bulk ? '<button type="button" class="pill-btn ghost" id="off-stop">Остановить</button>'
+            : missing ? '<button type="button" class="pill-btn" id="off-all">Скачать все книги для офлайн-чтения</button>' : ''}
+          ${have.length && !bulk ? '<button type="button" class="pill-btn ghost" id="off-clear">Удалить скачанное</button>' : ''}
+        </div>
+      </section>
+      <section class="off-card">
+        <h2>Настройки</h2>
+        <label class="off-set"><input type="checkbox" data-set="open" ${getSet('open', true) ? 'checked' : ''}><span>Сохранять книгу на устройство, когда открываю её</span></label>
+        <label class="off-set"><input type="checkbox" data-set="mobile" ${getSet('mobile', true) ? 'checked' : ''}><span>Скачивать по мобильной сети</span>
+          ${noType ? '<small>(этот браузер не сообщает тип сети — настройка может не сработать)</small>' : ''}</label>
+        <label class="off-set"><input type="checkbox" data-set="auto" ${getSet('auto', false) ? 'checked' : ''}><span>Автоматически скачивать новые книги библиотеки</span></label>
+      </section>
+      ${have.length ? `<section class="off-card"><h2>На устройстве</h2><p class="muted">Занято: ${fmtMB(size)}</p>
+        <ul class="off-list">${have.map((b) => `<li><span dir="auto">${esc(b.title)}</span><small>${fmtMB(off.ids.get(b.id)?.size || 0)}</small>
+          <button type="button" class="pill-btn ghost sm" data-off-del="${b.id}">Удалить</button></li>`).join('')}</ul></section>` : ''}`;
+  }
+
+  document.addEventListener('click', async (e) => {
+    const t = e.target;
+    if (!(t instanceof Element)) return;
+    const ob = t.closest('[data-off]');
+    if (ob) {
+      e.stopPropagation();
+      const id = Number(ob.dataset.off);
+      const b = { id, version: ob.dataset.v, hasCover: ob.dataset.cover === '1' };
+      if (isOffline(b)) { if (confirm('Удалить скачанную копию с этого устройства?')) removeOffline(id); }
+      else downloadBook(b);
+      return;
+    }
+    const del = t.closest('[data-off-del]');
+    if (del) { removeOffline(Number(del.dataset.offDel)); return; }
+    if (t.id === 'off-all') downloadMany(state.offBooks || []);
+    else if (t.id === 'off-stop' && off.bulk) off.bulk.stop = true;
+    else if (t.id === 'off-clear') {
+      if (confirm('Удалить все скачанные книги с этого устройства?')) {
+        for (const id of [...off.ids.keys()]) await removeOffline(id);
+      }
+    }
+  }, true);
+  document.addEventListener('change', (e) => {
+    const s = e.target.closest?.('[data-set]');
+    if (s) { setSet(s.dataset.set, s.checked); if (s.dataset.set === 'auto' && s.checked) autoDownloadNew(); }
+  });
+
   /* ================= Роутинг и страницы ================= */
   const view = $('#view');
 
-  const ROUTES = ['home', 'publishers', 'catalog', 'favorites'];
+  const ROUTES = ['home', 'publishers', 'catalog', 'favorites', 'offline'];
   function currentRoute() {
     const h = location.hash.replace(/^#/, '');
     const r = ROUTES.includes(h) ? h : 'home';
@@ -141,11 +336,14 @@
     });
     $('#nav-profile span').textContent = state.me ? state.me.nick : 'Профиль';
     $('#tab-register').hidden = !state.registration;
+    $('#nav-offline').hidden = !state.me;
+    $('#nav-offline').classList.toggle('active', state.route === 'offline');
   }
 
   async function render() {
     state.route = currentRoute();
-    if (state.me && location.hash !== '#' + state.route && !['publishers', 'favorites'].includes(state.route)) {
+    if (state.me && off.ok && !off.scanned) { off.scanned = true; await offlineScan(); }
+    if (state.me && location.hash !== '#' + state.route && !['publishers', 'favorites', 'offline'].includes(state.route)) {
       history.replaceState(null, '', '#' + state.route);
     }
     if (state.route !== 'publishers') state.publisher = '';
@@ -156,6 +354,7 @@
       if (state.route === 'home') await renderHome();
       else if (state.route === 'publishers') await renderPublishers();
       else if (state.route === 'catalog') await renderCatalog();
+      else if (state.route === 'offline') await renderOffline();
       else await renderFavorites();
     } catch (e) {
       view.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
@@ -660,23 +859,38 @@
     if (state.route === 'publishers' && state.publisher) { state.publisher = ''; render(); }
   });
 
-  /* ---------- Тема: светлая / тёмная ---------- */
-  const themeBtn = $('#theme-toggle');
+  /* ---------- Тема: светлая / тёмная / розовая ---------- */
+  const THEME_COLOR = { light: '#f4efe4', dark: '#151a17', pink: '#fbeff3' };
   const sysDark = matchMedia('(prefers-color-scheme: dark)');
-  const isDarkNow = () => (document.documentElement.dataset.theme || (sysDark.matches ? 'dark' : 'light')) === 'dark';
+  const themeBtn = $('#theme-btn');
+  const themePop = $('#theme-pop');
+  const curTheme = () => document.documentElement.dataset.theme || (sysDark.matches ? 'dark' : 'light');
   function paintTheme() {
-    const dark = isDarkNow();
-    themeBtn.dataset.mode = dark ? 'dark' : 'light';
-    const tt = dark ? 'Включить светлую тему' : 'Включить тёмную тему'; themeBtn.title = tt; themeBtn.setAttribute('aria-label', tt);
+    const t = curTheme();
+    $$('[data-theme-set]', themePop).forEach((b) => {
+      const on = b.dataset.themeSet === t;
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-checked', String(on));
+    });
     const m = document.querySelector('meta[name=theme-color]');
-    if (m) m.content = dark ? '#151a17' : '#f4efe4';
+    if (m) m.content = THEME_COLOR[t];
   }
-  themeBtn.onclick = () => {
-    const next = isDarkNow() ? 'light' : 'dark';
-    document.documentElement.dataset.theme = next;
-    try { localStorage.setItem('theme', next); } catch { /* ok */ }
-    paintTheme();
+  const closeThemePop = () => { themePop.hidden = true; themeBtn.setAttribute('aria-expanded', 'false'); };
+  themeBtn.onclick = (e) => {
+    e.stopPropagation();
+    themePop.hidden = !themePop.hidden;
+    themeBtn.setAttribute('aria-expanded', String(!themePop.hidden));
   };
+  themePop.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-theme-set]');
+    if (!b) return;
+    document.documentElement.dataset.theme = b.dataset.themeSet;
+    try { localStorage.setItem('theme', b.dataset.themeSet); } catch { /* ok */ }
+    paintTheme();
+    closeThemePop();
+  });
+  document.addEventListener('click', (e) => { if (!themePop.hidden && !e.target.closest('.theme-wrap')) closeThemePop(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !themePop.hidden) closeThemePop(); });
   sysDark.addEventListener?.('change', paintTheme);
   paintTheme();
 
@@ -736,6 +950,7 @@
     $('#p-logout').onclick = async () => {
       try { await api('POST', '/api/logout'); } catch { /* всё равно выходим */ }
       state.me = null;
+      try { navigator.serviceWorker?.controller?.postMessage({ type: 'clear-user' }); } catch { /* ok */ }
       closeModal($('#m-profile'));
       toast('Вы вышли из аккаунта');
       history.replaceState(null, '', '#home');
@@ -822,7 +1037,7 @@
 
     let loadingTask = null;
     try {
-      loadingTask = pdfjsLib.getDocument({ ...PDF_OPTS, url: `/api/books/${id}/pdf`, withCredentials: true });
+      loadingTask = pdfjsLib.getDocument({ ...PDF_OPTS, url: pdfUrl(book), withCredentials: true });
       const doc = await loadingTask.promise;
       if (session !== R.session || reader.hidden) { loadingTask.destroy(); return; }
       R.loading = loadingTask;
@@ -833,6 +1048,7 @@
       pageInput.max = R.total;
       $('#r-total').textContent = `/ ${R.total}`;
       await goTo(R.page, true);
+      if (state.me && off.ok && getSet('open', true) && netAllowed() && navigator.onLine && !isOffline(book)) setTimeout(() => downloadBook(book), 1500);
       if (state.me && !book.progress && session === R.session) { R.dirty = true; flushProgress(); } // книга сразу попадает в «Продолжить чтение»
     } catch (e) {
       if (loadingTask && R.loading !== loadingTask) { try { loadingTask.destroy(); } catch { /* ok */ } }
@@ -840,6 +1056,7 @@
       showLoading(
         e?.name === 'PasswordException' ? 'PDF защищён паролем — открыть его нельзя.'
           : e?.status === 401 || /401/.test(e?.message || '') ? 'Сессия истекла — войдите снова.'
+          : !navigator.onLine ? 'Нет интернета. Эта книга не скачана для офлайн-чтения.'
           : 'Не удалось открыть книгу. Попробуйте позже.',
         true
       );
@@ -1261,5 +1478,7 @@
       state.me = null;
     }
     await render();
+    if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
+    (window.requestIdleCallback || ((f) => setTimeout(f, 3000)))(autoDownloadNew);
   })();
 })();
