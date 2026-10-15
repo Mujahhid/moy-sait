@@ -558,9 +558,7 @@ main { max-width: var(--maxw); margin: 0 auto; padding: 0 20px calc(120px + env(
 .cr-btn { flex: 0 0 auto; border: 0; border-radius: 999px; background: var(--btn); color: #fff; font: 600 .9rem var(--font-body); padding: 13px 20px; cursor: pointer; }
 .cr-btn:hover { filter: brightness(1.1); }
 @media (max-width: 640px) {
-  .cr-card { flex-wrap: wrap; padding: 14px; gap: 12px 14px; }
-  .cr-body { flex-basis: calc(100% - 100px); }
-  .cr-btn { width: 100%; }
+  .cr-card { padding: 14px; gap: 14px; }
   .cr-title { font-size: 1.5rem; }
 }
 
@@ -631,3 +629,7 @@ main { max-width: var(--maxw); margin: 0 auto; padding: 0 20px calc(120px + env(
 .off-list small { color: var(--muted); }
 .sw-blue { background: linear-gradient(135deg, #e6eefb 50%, #2f6fc4 50%); }
 .sw-green { background: linear-gradient(135deg, #e6f3e2 50%, #2e8b45 50%); }
+
+.cr-card { transition: transform .15s ease; }
+.cr-card:hover { transform: translateY(-2px); }
+.cr-card:focus-visible { outline: 2px solid var(--btn); outline-offset: 2px; }
