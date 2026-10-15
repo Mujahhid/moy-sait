@@ -118,7 +118,6 @@
 
   function cardHtml(b) {
     const info = [b.section, LANG_NAME[b.language], b.pages ? `${b.pages} стр.` : ''].filter(Boolean).join(' · ');
-    const btn = !b.progress ? 'Читать' : isFinished(b) ? 'Читать снова' : 'Продолжить чтение';
     return `<article class="card" data-card="${b.id}">
       <button type="button" class="cover" data-open="${b.id}" aria-label="Читать: ${esc(b.title)}">${coverHtml(b)}</button>
       <button type="button" class="fav ${b.favorite ? 'on' : ''}" data-fav="${b.id}" aria-pressed="${!!b.favorite}"
@@ -130,7 +129,6 @@
         ${progressHtml(b)}
       </div>
       <div class="actions">
-        <button type="button" class="read-btn" data-open="${b.id}">${btn}</button>
         <span data-off-slot="${b.id}">${offBtnHtml(b)}</span>
       </div>
     </article>`;
@@ -571,6 +569,7 @@
     const { publishers } = await api('GET', '/api/publishers');
     view.innerHTML = `<div class="page-head"><h1 class="page-title">Издательства</h1>
         <p class="page-sub">Выберите издательство, чтобы увидеть его книги.</p></div>
+      <div id="continue"></div>
       ${publishers.length
         ? `<div class="pub-grid">${publishers.map((p) => `
             <button type="button" class="pub" data-pub="${esc(p.name)}">
@@ -581,6 +580,7 @@
             state.me?.isAdmin ? '<br><button type="button" class="btn primary" id="first-book">Добавить книгу</button>' : ''}</div>`}`;
     const fb = $('#first-book');
     if (fb) fb.onclick = openManage;
+    loadContinue();
   }
 
   function continueCard(b) {
@@ -621,7 +621,6 @@
   async function renderCatalog() {
     view.innerHTML = `
       <div class="page-head"><h1 class="page-title">Каталог</h1></div>
-      <div id="continue"></div>
       <div class="search-sticky">
         <div class="search">
           <span class="glass" aria-hidden="true">⌕</span>
@@ -657,7 +656,6 @@
     if (state.section && !sections.some((s) => s.name === state.section)) state.section = '';
     if (state.lang === 'en') state.lang = '';
     drawChips();
-    loadContinue();
     await loadCatalogGrid();
   }
 
@@ -860,7 +858,7 @@
   });
 
   /* ---------- Тема: светлая / тёмная / розовая ---------- */
-  const THEME_COLOR = { light: '#f4efe4', dark: '#151a17', pink: '#fbeff3' };
+  const THEME_COLOR = { light: '#f4efe4', dark: '#151a17', pink: '#fbeff3', blue: '#eef3fb', green: '#eef5ec' };
   const sysDark = matchMedia('(prefers-color-scheme: dark)');
   const themeBtn = $('#theme-btn');
   const themePop = $('#theme-pop');

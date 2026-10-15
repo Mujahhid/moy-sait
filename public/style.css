@@ -98,6 +98,21 @@
   --shadow: 0 1px 2px rgba(120, 40, 70, .08), 0 8px 24px rgba(120, 40, 70, .10);
 }
 
+/* Синяя тема */
+:root[data-theme="blue"] {
+  --paper: #eef3fb; --paper-2: #dde7f5; --card: #f9fbff; --ink: #16253b; --muted: #5f7088; --line: #c9d7ea;
+  --green: #2a5aa6; --green-2: #4879c4; --gold: #3f7fd6; --gold-soft: #cfe0f7; --danger: #b3261e; --btn: #2f6fc4;
+  --wood-1: #8fa9d1; --wood-2: #7692bd; --wood-3: #5d7aa6; --shelf-1: #dfe8f6; --shelf-2: #cfdcf0; --board-1: #c3d3ec; --board-2: #b0c4e3;
+  --shadow: 0 1px 2px rgba(20, 50, 100, .08), 0 8px 24px rgba(20, 50, 100, .10);
+}
+/* Зелёная тема */
+:root[data-theme="green"] {
+  --paper: #eef5ec; --paper-2: #dcead8; --card: #f8fcf6; --ink: #1b2e1f; --muted: #5d7262; --line: #c5d9c0;
+  --green: #2a7a3b; --green-2: #3f9650; --gold: #4caf5c; --gold-soft: #cfe8c9; --danger: #b3261e; --btn: #2e8b45;
+  --wood-1: #a3be92; --wood-2: #8aa97a; --wood-3: #6f8d60; --shelf-1: #e0ecda; --shelf-2: #d0e1c8; --board-1: #c6dbbc; --board-2: #b3cca7;
+  --shadow: 0 1px 2px rgba(25, 70, 35, .08), 0 8px 24px rgba(25, 70, 35, .10);
+}
+
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 
@@ -510,7 +525,7 @@ main { max-width: var(--maxw); margin: 0 auto; padding: 0 20px calc(120px + env(
   background: var(--paper); box-shadow: 0 8px 10px -9px rgba(40, 30, 10, .35);
 }
 .result-count { margin: 6px 2px 0; min-height: 1.3em; color: var(--muted); font-size: .88rem; }
-.search-sticky + .toolbar { margin-top: 4px; }
+.search-sticky + .toolbar { margin-top: 18px; }
 @media (max-width: 640px) { .search-sticky { top: 57px; } }
 
 /* не очень широкий экран: в верхней панели только подписи, чтобы не наезжать на логотип */
@@ -614,3 +629,5 @@ main { max-width: var(--maxw); margin: 0 auto; padding: 0 20px calc(120px + env(
 .off-list li { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
 .off-list li span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .off-list small { color: var(--muted); }
+.sw-blue { background: linear-gradient(135deg, #e6eefb 50%, #2f6fc4 50%); }
+.sw-green { background: linear-gradient(135deg, #e6f3e2 50%, #2e8b45 50%); }
