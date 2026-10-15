@@ -588,7 +588,6 @@
     const { publishers } = await api('GET', '/api/publishers');
     view.innerHTML = `<div class="page-head"><h1 class="page-title">Издательства</h1>
         <p class="page-sub">Выберите издательство, чтобы увидеть его книги.</p></div>
-      <div id="continue"></div>
       ${publishers.length
         ? `<div class="pub-grid">${publishers.map((p) => `
             <button type="button" class="pub" data-pub="${esc(p.name)}">
@@ -599,7 +598,6 @@
             state.me?.isAdmin ? '<br><button type="button" class="btn primary" id="first-book">Добавить книгу</button>' : ''}</div>`}`;
     const fb = $('#first-book');
     if (fb) fb.onclick = openManage;
-    loadContinue();
   }
 
   function continueCard(b) {
