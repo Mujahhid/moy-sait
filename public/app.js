@@ -142,7 +142,21 @@
   const getSet = (k, def) => { try { const v = localStorage.getItem('off_' + k); return v == null ? def : v === '1'; } catch { return def; } };
   const setSet = (k, v) => { try { localStorage.setItem('off_' + k, v ? '1' : '0'); } catch { /* ok */ } };
   const netAllowed = () => getSet('mobile', true) || navigator.connection?.type !== 'cellular';
-  const fmtMB = (n) => (n >= 1048576 ? (n / 1048576).toFixed(n >= 10485760 ? 0 : 1) + ' МБ' : Math.max(1, Math.round(n / 1024)) + ' КБ');
+  const fmtMB = (n) => (n >= 1073741824 ? (n / 1073741824).toFixed(1).replace('.', ',') + ' ГБ'
+    : n >= 1048576 ? (n / 1048576).toFixed(n >= 10485760 ? 0 : 1).replace('.', ',') + ' МБ' : Math.max(1, Math.round(n / 1024)) + ' КБ');
+  async function refreshEstimate() {
+    try {
+      const est = await navigator.storage?.estimate?.();
+      off.est = est || null;
+    } catch { off.est = null; }
+    const el = $('#off-est');
+    if (el) el.innerHTML = estHtml();
+  }
+  function estHtml() {
+    const e = off.est;
+    return `${e && e.quota ? `<p class="muted">Данные сайта занимают ${fmtMB(e.usage || 0)} из доступных примерно ${fmtMB(e.quota)}.</p>` : ''}
+      <p class="muted">Система может удалить данные сайта при нехватке места или если приложением долго не пользоваться — тогда книги нужно скачать снова.</p>`;
+  }
 
   async function offlineScan() {
     if (!off.ok) return;
@@ -165,7 +179,7 @@
       const d = slot.querySelector('[data-off]')?.dataset;
       if (d) slot.innerHTML = offBtnHtml({ id, version: d.v, hasCover: d.cover === '1' });
     });
-    if (state.route === 'offline') drawOffline();
+    if (state.route === 'offline') { drawOffline(); if (!off.busy.size) refreshEstimate(); }
   }
 
   async function downloadBook(b) {
@@ -246,13 +260,14 @@
   }
 
   async function renderOffline() {
-    view.innerHTML = `<div class="page-head"><h1 class="page-title">Офлайн-чтение</h1>
+    view.innerHTML = `<div class="page-head"><h1 class="page-title">Скачанные книги</h1>
       <p class="page-sub">Скачайте книги на устройство, чтобы читать их без интернета.</p></div><div id="off-body"></div>`;
     if (!state.me) { $('#off-body').innerHTML = '<div class="empty">Войдите в аккаунт, чтобы скачивать книги.</div>'; return; }
     if (!off.ok) { $('#off-body').innerHTML = '<div class="empty">Этот браузер не умеет хранить книги офлайн.</div>'; return; }
     await offlineScan();
     ({ books: state.offBooks } = await api('GET', '/api/books'));
     drawOffline();
+    refreshEstimate();
   }
 
   function drawOffline() {
@@ -265,6 +280,10 @@
     const bulk = off.bulk;
     const noType = navigator.connection && navigator.connection.type === undefined || !navigator.connection;
     box.innerHTML = `
+      <section class="off-card">
+        <p class="off-sum"><b>На устройстве: ${have.length} ${plural(have.length)}</b> · ${fmtMB(size)}</p>
+        <div id="off-est">${estHtml()}</div>
+      </section>
       <section class="off-card">
         <h2>Вся библиотека без интернета</h2>
         <p>${!books.length ? 'В библиотеке пока нет книг.' : bulk ? `Скачиваем: ${bulk.done} из ${bulk.total}…` : missing ? `Не скачано: ${missing} из ${books.length}` : `Все книги скачаны (${books.length}) — ${fmtMB(size)}`}</p>
@@ -662,6 +681,7 @@
   async function renderCatalog() {
     view.innerHTML = `
       <div class="page-head"><h1 class="page-title">Каталог</h1></div>
+      <div id="continue"></div>
       <div class="search-sticky">
         <div class="search">
           <span class="glass" aria-hidden="true">⌕</span>
@@ -672,6 +692,7 @@
         </div>
         <p class="result-count" id="q-count" aria-live="polite"></p>
       </div>
+      ${state.me ? `<a class="off-link" href="#offline"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 20h14"/></svg>Скачанные книги и чтение без интернета</a>` : ''}
       <div class="toolbar"><div class="chips" id="chips"></div></div>
       <div id="spines"></div>
       <div id="grid" class="grid"></div>`;
@@ -697,6 +718,7 @@
     if (state.section && !sections.some((s) => s.name === state.section)) state.section = '';
     if (state.lang === 'en') state.lang = '';
     drawChips();
+    loadContinue();
     await loadCatalogGrid();
   }
 
