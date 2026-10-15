@@ -585,18 +585,58 @@
 
   function continueCard(b) {
     const p = b.progress.page;
-    const pct = b.pages > 0 ? Math.min(100, Math.round((p / b.pages) * 100)) : 0;
-    const done = isFinished(b);
+    const pct = isFinished(b) ? 100 : b.pages > 0 ? Math.min(100, Math.round((p / b.pages) * 100)) : 0;
     return `<article class="cr-card" role="listitem" tabindex="0" data-open="${b.id}" aria-label="Продолжить чтение: ${esc(b.title)}">
       <div class="cr-cover">${b.hasCover ? `<img src="/api/books/${b.id}/cover?v=${b.version}" alt="" loading="lazy" draggable="false">` : `<div class="cr-ph" style="background:${PH_COLORS[hashStr(b.title) % PH_COLORS.length][0]}"></div>`}</div>
       <div class="cr-body">
         <h3 dir="auto">${esc(b.title)}</h3>
-        ${b.author ? `<p class="cr-author" dir="auto">${esc(b.author)}</p>` : ''}
-        <p class="cr-page">${b.pages > 0 ? `Страница ${p} из ${b.pages} • ${done ? 100 : pct}%` : `Страница ${p}`}</p>
-        <div class="cr-bar" aria-hidden="true"><i style="width:${done ? 100 : pct}%"></i></div>
+        <p class="cr-author" dir="auto">${esc(b.author || 'Неизвестный автор')}</p>
+        <p class="cr-pct">PDF • ${pct} %</p>
       </div>
+      <button type="button" class="cr-dots" data-cr-menu="${b.id}" aria-label="Действия с книгой" title="Действия">•••</button>
     </article>`;
   }
+
+  const crBooks = new Map();
+  function closeSheet() { $('#sheet')?.remove(); document.body.classList.remove('no-scroll-sheet'); }
+  function openCrSheet(b) {
+    closeSheet();
+    const p = b.progress?.page || 1;
+    const pct = isFinished(b) ? 100 : b.pages > 0 ? Math.min(100, Math.round((p / b.pages) * 100)) : 0;
+    const have = isOffline(b);
+    const el = document.createElement('div');
+    el.id = 'sheet';
+    el.className = 'sheet-back';
+    el.innerHTML = `<div class="sheet" role="dialog" aria-modal="true" aria-label="${esc(b.title)}">
+      <h3 dir="auto">${esc(b.title)}</h3>
+      <p class="sheet-sub">${b.pages > 0 ? `Страница ${p} из ${b.pages} • ${pct}%` : `Страница ${p}`}</p>
+      <button type="button" class="sheet-btn primary" data-sh="open">Продолжить чтение</button>
+      ${off.ok ? `<button type="button" class="sheet-btn" data-sh="off">${have ? '✓ Доступна офлайн — удалить копию' : '↓ Скачать для офлайн-чтения'}</button>` : ''}
+      <button type="button" class="sheet-btn danger" data-sh="remove">Убрать из «Продолжить чтение»</button>
+      <button type="button" class="sheet-btn" data-sh="cancel">Отмена</button></div>`;
+    el.addEventListener('click', async (ev) => {
+      const act = ev.target.closest('[data-sh]')?.dataset.sh;
+      if (!act && ev.target !== el) return;
+      closeSheet();
+      if (act === 'open') openBook(b.id);
+      else if (act === 'off') { if (have) await removeOffline(b.id); else downloadBook(b); }
+      else if (act === 'remove') {
+        try { await api('DELETE', `/api/progress/${b.id}`); } catch (e) { toast(e.message, true); return; }
+        loadContinue();
+      }
+    });
+    document.body.appendChild(el);
+    $('[data-sh="open"]', el).focus();
+  }
+  document.addEventListener('click', (e) => {
+    const m = e.target instanceof Element && e.target.closest('[data-cr-menu]');
+    if (!m) return;
+    e.stopPropagation();
+    const b = crBooks.get(Number(m.dataset.crMenu));
+    if (b) openCrSheet(b);
+  }, true);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSheet(); });
+
   let crCleanup = null;
   async function loadContinue() {
     const box = $('#continue');
@@ -607,6 +647,8 @@
     try { ({ items } = await api('GET', '/api/progress')); } catch { return; }
     if (!$('#continue')) return;
     items = items.filter((i) => i.book);
+    crBooks.clear();
+    items.forEach((i) => crBooks.set(i.book.id, i.book));
     if (!items.length) { box.innerHTML = ''; return; }
     box.innerHTML = `<section class="cr-wrap"><h2 class="cr-title">Продолжить чтение</h2>
       <p class="cr-sub">Книга откроется на той странице, где вы остановились.</p>
