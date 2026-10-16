@@ -180,6 +180,7 @@
       if (d) slot.innerHTML = offBtnHtml({ id, version: d.v, hasCover: d.cover === '1' });
     });
     if (state.route === 'offline') { drawOffline(); if (!off.busy.size) refreshEstimate(); }
+    updateSaveBtn();
   }
 
   async function downloadBook(b) {
@@ -201,7 +202,7 @@
         chunks.push(value);
         got += value.length;
         const pct = total ? Math.min(99, Math.floor((got / total) * 100)) : 0;
-        if (pct !== last) { last = pct; off.busy.set(b.id, pct); $$(`[data-off="${b.id}"]`).forEach((el) => { el.textContent = `Скачиваем… ${pct}%`; }); }
+        if (pct !== last) { last = pct; off.busy.set(b.id, pct); $$(`[data-off="${b.id}"]`).forEach((el) => { el.textContent = `Скачиваем… ${pct}%`; }); updateSaveBtn(); }
       }
       const blob = new Blob(chunks, { type: 'application/pdf' });
       const c = await caches.open(PDF_CACHE);
@@ -862,7 +863,7 @@
     if (e.key === 'Escape') {
       const open = $$('.modal').filter((m) => !m.hidden);
       if (open.length) return closeModal(open[open.length - 1]);
-      if (!$('#reader').hidden && !document.fullscreenElement) closeReader();
+      if (!$('#reader').hidden && !document.fullscreenElement && !readerEscape()) closeReader();
     }
   });
 
@@ -1034,15 +1035,35 @@
   }
 
   /* ================= Читалка (pdf.js) ================= */
+  const lsGet = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
+  const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch { /* ok */ } };
+  const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  const HL_COLORS = ['yellow', 'green', 'blue', 'pink'];
+  const HL_NAMES = { yellow: 'Жёлтый', green: 'Зелёный', blue: 'Синий', pink: 'Розовый' };
+  const SAVED_MSG = 'Книга сохранена на устройстве и откроется без интернета';
+  const BM_SVG = '<svg viewBox="0 0 24 32" aria-hidden="true"><path d="M3 1.5h18v28L12 23 3 29.5z"/></svg>';
+  const emptyAnn = () => ({ bookmarks: [], highlights: [], updatedAt: 0, dirty: false, rev: 0 });
+
   const R = {
-    doc: null, loading: null, session: 0, book: null, page: 1, total: 0, mode: 'fit', zoom: 1, scale: 1,
-    task: null, token: 0, saveTimer: null, dirty: false,
-    night: localStorage.getItem('reader_night') === '1',
+    doc: null, lib: null, loading: null, session: 0, book: null, total: 0,
+    page: 1, spread: { l: 1, r: 0 }, twoUp: false, ref: null, lay: null, domKey: '',
+    bookMode: lsGet('reader_book') === '1',
+    mode: 'fit', zoom: 1, scale: 1,
+    nav: 0, flipping: false, pending: null,
+    cache: new Map(), tasks: new Set(),
+    pgsEl: null, pgL: null, pgR: null,
+    saveTimer: null, dirty: false,
+    night: lsGet('reader_night') === '1',
+    ann: emptyAnn(), annTimer: null,
+    popSel: null, popHl: null, pointerDown: false,
   };
   const reader = $('#reader');
   const stage = $('#r-stage');
-  const canvas = $('#r-canvas');
+  const bookEl = $('#r-book');
   const pageInput = $('#r-page');
+  const pop = $('#r-pop');
+  const panel = $('#r-panel');
+  const reducedMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   // pdf.js (≈500 КБ) подгружается только когда нужна читалка или загрузка PDF, а не на каждой странице
   let pdfjsPromise = null;
@@ -1060,7 +1081,7 @@
   function setNight(on) {
     R.night = on;
     reader.classList.toggle('night', on);
-    localStorage.setItem('reader_night', on ? '1' : '0');
+    lsSet('reader_night', on ? '1' : '0');
   }
 
   function showLoading(msg, isErr = false) {
@@ -1070,6 +1091,19 @@
     l.classList.toggle('err', isErr);
   }
 
+  const clampPage = (n) => Math.min(Math.max(1, Math.round(Number(n) || 1)), R.total || 1);
+  const lastVisible = () => R.spread.r || R.spread.l || 1;
+  const firstVisible = () => R.spread.l || R.spread.r || 1;
+
+  // какие страницы видны вместе: в режиме книги обложка одна, дальше пары 2–3, 4–5…
+  function spreadFor(p) {
+    if (!R.twoUp) return { l: p, r: 0 };
+    if (p <= 1) return { l: 0, r: 1 };
+    const l = p % 2 === 0 ? p : p - 1;
+    return { l, r: l + 1 <= R.total ? l + 1 : 0 };
+  }
+
+  /* ---------- Открытие и закрытие ---------- */
   async function openReader(id) {
     // модуль чтения и данные книги грузим одновременно
     let pdfjsLib, book;
@@ -1079,23 +1113,30 @@
       toast(e instanceof TypeError ? 'Не удалось загрузить модуль чтения (pdf.js). Проверьте соединение.' : e.message, true);
       return;
     }
-    Object.assign(R, { book, doc: null, page: 1, total: book.pages || 0, task: null });
-    R.token++;
+    Object.assign(R, { book, lib: pdfjsLib, doc: null, page: 1, spread: { l: 1, r: 0 }, total: book.pages || 0, ref: null, lay: null, domKey: '', pending: null, flipping: false });
+    R.nav++;
     const session = ++R.session;
     if (R.loading) { try { R.loading.destroy(); } catch { /* ok */ } R.loading = null; }
+    resetPageCache();
+    closePanel();
+    hidePop();
+    R.ann = emptyAnn();
     setNight(R.night);
     $('#r-title').textContent = book.title;
     $('#r-title').dir = 'auto';
     pageInput.value = '';
     $('#r-total').textContent = '';
-    canvas.width = canvas.height = 0;
-    canvas.style.width = canvas.style.height = '0';
+    $('#r-status').textContent = '';
+    $('#r-bar').style.width = '0';
+    bookEl.replaceChildren();
+    R.pgsEl = R.pgL = R.pgR = null;
     showLoading('Открываем книгу…');
     $('#r-prev').disabled = $('#r-next').disabled = pageInput.disabled = true; // пока книга грузится — листать нельзя
     reader.hidden = false;
     document.body.classList.add('no-scroll');
     history.pushState({ reader: true }, '');
     stage.focus({ preventScroll: true });
+    updateReaderUi();
 
     let loadingTask = null;
     try {
@@ -1105,11 +1146,18 @@
       R.loading = loadingTask;
       R.doc = doc;
       R.total = doc.numPages;
-      const saved = book.progress?.page || Number(localStorage.getItem(`kp_${id}`)) || 1;
-      R.page = Math.min(Math.max(1, saved), R.total);
+      // размер страниц берём не с обложки, а со второй страницы — у обложки он часто другой
+      const refPage = await doc.getPage(Math.min(2, R.total));
+      if (session !== R.session) return;
+      const rv = refPage.getViewport({ scale: 1 });
+      R.ref = { w: rv.width, h: rv.height };
+      const saved = book.progress?.page || Number(lsGet(`kp_${id}`)) || 1;
+      R.page = clampPage(saved);
       pageInput.max = R.total;
       $('#r-total').textContent = `/ ${R.total}`;
-      await goTo(R.page, true);
+      await show(R.page, { save: false });
+      if (session !== R.session) return;
+      annOpen(book);
       if (state.me && off.ok && getSet('open', true) && netAllowed() && navigator.onLine && !isOffline(book)) setTimeout(() => downloadBook(book), 1500);
       if (state.me && !book.progress && session === R.session) { R.dirty = true; flushProgress(); } // книга сразу попадает в «Продолжить чтение»
     } catch (e) {
@@ -1125,73 +1173,325 @@
     }
   }
 
-  async function renderCurrent() {
-    const doc = R.doc;
-    if (!doc) return;
-    const myToken = ++R.token;
-    if (R.task) { try { R.task.cancel(); } catch { /* уже завершено */ } }
-    let page;
-    try {
-      page = await doc.getPage(R.page);
-    } catch { return; }
-    if (myToken !== R.token) return;
+  function closeReader() {
+    if (history.state && history.state.reader) history.back();
+    else doCloseReader();
+  }
 
-    const base = page.getViewport({ scale: 1 });
-    const avail = Math.max(200, stage.clientWidth - 28);
-    // на широком экране вписываем страницу целиком, на телефоне — по ширине
+  function doCloseReader() {
+    if (reader.hidden) return;
+    flushProgress();
+    annPush(true);
+    R.nav++;
+    R.session++;
+    resetPageCache();
+    if (R.loading) { try { R.loading.destroy(); } catch { /* ok */ } }
+    R.loading = null;
+    R.doc = null;
+    R.book = null;
+    R.flipping = false;
+    R.pending = null;
+    hidePop();
+    closePanel();
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    reader.hidden = true;
+    bookEl.replaceChildren();
+    R.pgsEl = R.pgL = R.pgR = null;
+    if (!$$('.modal').some((m) => !m.hidden)) document.body.classList.remove('no-scroll');
+    if (ROUTES.includes(state.route)) render(); // обновить прогресс на карточках
+  }
+
+  /* ---------- Размеры и отрисовка страниц ---------- */
+  function resetPageCache() {
+    R.tasks.forEach((t) => { try { t.cancel(); } catch { /* уже завершено */ } });
+    R.tasks.clear();
+    R.cache.clear();
+  }
+
+  function computeLayout() {
+    R.twoUp = R.bookMode && stage.clientWidth >= 600;
+    const ref = R.ref;
+    const availW = Math.max(200, stage.clientWidth - 28);
     const availH = Math.max(200, stage.clientHeight - 28);
+    // на широком экране вписываем страницу целиком, на телефоне — по ширине
     const wide = stage.clientWidth >= 700 && stage.clientWidth > stage.clientHeight;
-    const fitScale = wide ? Math.min(avail / base.width, availH / base.height) : avail / base.width;
-    const scale = R.mode === 'fit' ? Math.min(fitScale, 3) : R.zoom;
+    let fit;
+    if (R.twoUp) fit = Math.min(availW / (ref.w * 2), availH / ref.h);
+    else fit = wide ? Math.min(availW / ref.w, availH / ref.h) : availW / ref.w;
+    const scale = R.mode === 'fit' ? Math.min(fit, 3) : R.zoom;
     R.scale = scale;
-    const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
-    const vp = page.getViewport({ scale: scale * dpr });
+    R.lay = { scale, pw: ref.w * scale, ph: ref.h * scale };
+    return `${R.twoUp ? 2 : 1}|${scale.toFixed(4)}|${Math.round(R.lay.pw)}x${Math.round(R.lay.ph)}`;
+  }
 
-    const off = document.createElement('canvas');
-    off.width = Math.max(1, Math.floor(vp.width));
-    off.height = Math.max(1, Math.floor(vp.height));
-    const task = page.render({ canvasContext: off.getContext('2d'), viewport: vp });
-    R.task = task;
+  const CACHE_MAX = 8;
+  function pageCanvas(n) {
+    const sc = R.lay.scale;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+    const key = `${n}|${sc.toFixed(4)}|${dpr}`;
+    let p = R.cache.get(key);
+    if (p) { R.cache.delete(key); R.cache.set(key, p); return p; }
+    const doc = R.doc;
+    p = (async () => {
+      const page = await doc.getPage(n);
+      const vp = page.getViewport({ scale: sc * dpr });
+      const c = document.createElement('canvas');
+      c.width = Math.max(1, Math.floor(vp.width));
+      c.height = Math.max(1, Math.floor(vp.height));
+      const task = page.render({ canvasContext: c.getContext('2d'), viewport: vp });
+      R.tasks.add(task);
+      try { await task.promise; } finally { R.tasks.delete(task); }
+      return { canvas: c, w: c.width / dpr, h: c.height / dpr };
+    })();
+    R.cache.set(key, p);
+    p.catch(() => { if (R.cache.get(key) === p) R.cache.delete(key); });
+    while (R.cache.size > CACHE_MAX) R.cache.delete(R.cache.keys().next().value);
+    return p;
+  }
+
+  const mk = (cls, tag = 'div') => { const e = document.createElement(tag); if (cls) e.className = cls; return e; };
+
+  function makePg(n, ent, slot) {
+    const { pw, ph } = R.lay;
+    const pg = mk(`pg ${slot}`);
+    pg.style.width = `${pw}px`;
+    pg.style.height = `${ph}px`;
+    if (!n || !ent) { pg.classList.add('empty'); return pg; }
+    pg.dataset.page = n;
+    const pgi = mk('pgi');
+    pgi.style.width = `${ent.w}px`;
+    pgi.style.height = `${ent.h}px`;
+    const c = document.createElement('canvas');
+    c.width = ent.canvas.width;
+    c.height = ent.canvas.height;
+    c.style.width = `${ent.w}px`;
+    c.style.height = `${ent.h}px`;
+    c.getContext('2d').drawImage(ent.canvas, 0, 0);
+    pgi.append(c, mk('hl-layer'), mk('textLayer'));
+    const bm = mk('pg-bm', 'button');
+    bm.type = 'button';
+    bm.dataset.bm = n;
+    bm.title = 'Закладка на этой странице';
+    bm.setAttribute('aria-label', `Закладка: страница ${n}`);
+    bm.innerHTML = BM_SVG;
+    pg.append(pgi, bm);
+    paintPg(pg);
+    return pg;
+  }
+
+  // слой текста: благодаря ему текст страницы можно выделять
+  async function attachText(pg) {
+    const n = Number(pg?.dataset.page);
+    if (!n || !R.doc || !R.lib?.TextLayer) return;
+    const tl = pg.querySelector('.textLayer');
+    if (!tl || tl.dataset.done) return;
+    tl.dataset.done = '1';
+    const session = R.session;
     try {
-      await task.promise;
+      const page = await R.doc.getPage(n);
+      if (session !== R.session || !pg.isConnected) return;
+      const vp = page.getViewport({ scale: R.lay.scale });
+      tl.style.setProperty('--total-scale-factor', String(vp.scale));
+      const layer = new R.lib.TextLayer({ textContentSource: page.streamTextContent(), container: tl, viewport: vp });
+      tl.style.width = `${vp.width}px`;
+      tl.style.height = `${vp.height}px`;
+      await layer.render();
+    } catch { /* без слоя текста читать можно, выделять нельзя */ }
+  }
+
+  function buildPgs(sp, ents) {
+    const { pw, ph } = R.lay;
+    const pgs = mk('pgs');
+    pgs.style.width = `${R.twoUp ? pw * 2 : pw}px`;
+    pgs.style.height = `${ph}px`;
+    let L;
+    let Rr = null;
+    if (R.twoUp) {
+      L = makePg(sp.l, ents[0], 'l');
+      Rr = makePg(sp.r, ents[1], 'r');
+      pgs.append(L, Rr, mk('gutter'));
+    } else {
+      L = makePg(sp.l, ents[0], 's');
+      pgs.append(L);
+    }
+    return { pgs, L, Rr };
+  }
+
+  function swapInstant(sp, ents, dir) {
+    const { pgs, L, Rr } = buildPgs(sp, ents);
+    bookEl.classList.toggle('single', !R.twoUp);
+    bookEl.classList.remove('slide-next', 'slide-prev');
+    bookEl.replaceChildren(pgs);
+    R.pgsEl = pgs; R.pgL = L; R.pgR = Rr;
+    if (dir && R.bookMode && !R.twoUp && !reducedMotion()) {
+      void bookEl.offsetWidth;
+      bookEl.classList.add(dir > 0 ? 'slide-next' : 'slide-prev');
+      setTimeout(() => bookEl.classList.remove('slide-next', 'slide-prev'), 320);
+    }
+  }
+
+  // перелистывание: лист поворачивается вокруг корешка, под ним уже новый разворот
+  async function flipTo(dir, sp, ents, session) {
+    const { pw, ph } = R.lay;
+    const pgsEl = R.pgsEl;
+    const oldL = R.pgL;
+    const oldR = R.pgR;
+    const nl = makePg(sp.l, ents[0], 'l');
+    const nr = makePg(sp.r, ents[1], 'r');
+    const fl = mk(`flipper ${dir > 0 ? 'fwd' : 'bwd'}`);
+    fl.style.width = `${pw}px`;
+    fl.style.height = `${ph}px`;
+    fl.style.left = dir > 0 ? `${pw}px` : '0';
+    const front = mk('face front');
+    const back = mk('face back');
+    front.append(mk('shade'));
+    back.append(mk('shade'));
+    if (dir > 0) {
+      pgsEl.replaceChild(nr, oldR);
+      front.prepend(oldR);
+      back.prepend(nl);
+    } else {
+      pgsEl.replaceChild(nl, oldL);
+      front.prepend(oldL);
+      back.prepend(nr);
+    }
+    fl.append(front, back);
+    bookEl.append(fl);
+    R.flipping = true;
+    void fl.offsetWidth;
+    fl.style.transform = dir > 0 ? 'rotateY(-180deg)' : 'rotateY(180deg)';
+    await new Promise((res) => {
+      let done = false;
+      const end = () => { if (!done) { done = true; res(); } };
+      fl.addEventListener('transitionend', (e) => { if (e.target === fl && e.propertyName === 'transform') end(); });
+      setTimeout(end, 900);
+    });
+    R.flipping = false;
+    if (session !== R.session) { fl.remove(); return false; }
+    if (dir > 0) pgsEl.replaceChild(nl, oldL);
+    else pgsEl.replaceChild(nr, oldR);
+    fl.remove();
+    R.pgL = nl; R.pgR = nr;
+    return true;
+  }
+
+  async function show(n, { dir = 0, save = true, force = false } = {}) {
+    if (!R.doc || !R.ref) return;
+    if (R.flipping) { R.pending = { n, save, force }; return; }
+    const my = ++R.nav;
+    const session = R.session;
+    const prevKey = R.domKey;
+    const key = computeLayout();
+    if (key !== prevKey) resetPageCache();
+    const sp = spreadFor(clampPage(n));
+    const old = R.spread;
+    const had = !!R.pgsEl;
+    const same = had && key === prevKey && old.l === sp.l && old.r === sp.r;
+    if (same && !force) { updateReaderUi(); return; }
+
+    let ents;
+    try {
+      ents = await Promise.all([sp.l, sp.r].map((p) => (p ? pageCanvas(p) : null)));
     } catch (e) {
-      if (e?.name === 'RenderingCancelledException') return;
-      if (myToken === R.token) showLoading('Не удалось отобразить страницу.', true);
+      if (my === R.nav && e?.name !== 'RenderingCancelledException') showLoading('Не удалось отобразить страницу.', true);
       return;
     }
-    if (myToken !== R.token) return;
-    canvas.width = off.width;
-    canvas.height = off.height;
-    canvas.style.width = `${off.width / dpr}px`;
-    canvas.style.height = `${off.height / dpr}px`;
-    canvas.getContext('2d').drawImage(off, 0, 0);
+    if (my !== R.nav || session !== R.session) return;
     showLoading('');
-    if (R.page < R.total) doc.getPage(R.page + 1).catch(() => {}); // прогреваем следующую страницу
-  }
+    hidePop();
+    window.getSelection()?.removeAllRanges();
 
-  function updateReaderUi() {
-    pageInput.value = R.page;
-    pageInput.disabled = false;
-    $('#r-prev').disabled = R.page <= 1;
-    $('#r-next').disabled = R.page >= R.total;
-    $('#r-bar').style.width = R.total ? `${(R.page / R.total) * 100}%` : '0';
-    $('#r-fit').classList.toggle('active', R.mode === 'fit');
-  }
-
-  async function goTo(n, initial = false) {
-    if (!R.doc) return;
-    n = Math.min(Math.max(1, Math.round(Number(n) || 1)), R.total);
-    if (n === R.page && !initial) { updateReaderUi(); return; }
-    R.page = n;
+    R.spread = sp;
+    R.page = sp.l || sp.r;
+    R.domKey = key;
+    const adjacent = had && key === prevKey && R.twoUp
+      && ((dir > 0 && (sp.l || sp.r) === (old.r || old.l) + 1) || (dir < 0 && (sp.r || sp.l) === (old.l || old.r) - 1));
+    if (adjacent && !reducedMotion()) {
+      updateReaderUi();
+      const ok = await flipTo(dir, sp, ents, session);
+      if (!ok) return;
+    } else {
+      swapInstant(sp, ents, had && key === prevKey ? dir : 0);
+      stage.scrollTo(0, 0);
+    }
+    [R.pgL, R.pgR].forEach((pg) => pg && attachText(pg));
     updateReaderUi();
-    stage.scrollTo(0, 0);
-    if (!initial) scheduleSave();
-    await renderCurrent();
+    if (save) scheduleSave();
+    prefetchAround();
+    if (R.pending && session === R.session) {
+      const p = R.pending;
+      R.pending = null;
+      show(p.n, { save: p.save, force: p.force });
+    }
   }
+
+  // пока читаем разворот, соседние уже рисуются в фоне — листается без задержки
+  function prefetchAround() {
+    const my = R.nav;
+    const session = R.session;
+    setTimeout(() => {
+      if (my !== R.nav || session !== R.session || !R.doc || R.flipping) return;
+      const s = R.spread;
+      const next = (s.r || s.l) + 1;
+      const prev = (s.l || s.r) - 1;
+      const want = [];
+      if (next <= R.total) { const sn = spreadFor(next); want.push(sn.l, sn.r); }
+      if (prev >= 1) { const sp = spreadFor(prev); want.push(sp.l, sp.r); }
+      want.filter(Boolean).forEach((p) => pageCanvas(p).catch(() => {}));
+    }, 250);
+  }
+
+  const relayout = () => { resetPageCache(); R.domKey = ''; return show(R.page, { save: false, force: true }); };
+
+  /* ---------- Интерфейс читалки ---------- */
+  function updateReaderUi() {
+    const first = firstVisible();
+    const last = lastVisible();
+    const ready = !!R.doc && !!R.pgsEl;
+    if (ready) {
+      pageInput.value = first;
+      pageInput.disabled = false;
+      $('#r-prev').disabled = first <= 1;
+      $('#r-next').disabled = last >= R.total;
+      const pct = R.total ? Math.min(100, Math.floor((last / R.total) * 100)) : 0;
+      $('#r-bar').style.width = R.total ? `${(last / R.total) * 100}%` : '0';
+      $('#r-status').textContent = first === last
+        ? `Страница ${first} из ${R.total} • ${pct}%`
+        : `Страницы ${first}–${last} из ${R.total} • ${pct}%`;
+    }
+    $('#r-fit').classList.toggle('active', R.mode === 'fit');
+    const bmBtn = $('#r-bookmode');
+    bmBtn.classList.toggle('active', R.bookMode);
+    bmBtn.setAttribute('aria-pressed', String(R.bookMode));
+    const marked = ready && R.ann.bookmarks.some((b) => b.page === first);
+    $('#r-bm').setAttribute('aria-pressed', String(marked));
+    $('#pn-bm').textContent = R.ann.bookmarks.length;
+    $('#pn-hl').textContent = R.ann.highlights.length;
+    updateSaveBtn();
+  }
+
+  function updateSaveBtn() {
+    const btn = $('#r-save');
+    if (!btn) return;
+    btn.hidden = !off.ok;
+    const b = R.book;
+    if (!b) return;
+    const busy = off.busy.get(b.id);
+    const have = busy == null && isOffline(b);
+    btn.classList.toggle('saved', have);
+    btn.classList.toggle('busy', busy != null);
+    btn.textContent = busy != null ? `${busy}%` : '✓';
+    btn.title = busy != null ? 'Скачиваем книгу…' : have ? 'Книга сохранена на устройстве' : 'Сохранить книгу на устройство для чтения без интернета';
+  }
+
+  /* ---------- Листание и прогресс ---------- */
+  const goTo = (n) => show(n);
+  function next() { if (!R.doc || lastVisible() >= R.total) return; show(lastVisible() + 1, { dir: 1 }); }
+  function prev() { if (!R.doc || firstVisible() <= 1) return; show(firstVisible() - 1, { dir: -1 }); }
 
   function scheduleSave() {
     if (!R.book) return;
-    localStorage.setItem(`kp_${R.book.id}`, String(R.page));
+    lsSet(`kp_${R.book.id}`, String(lastVisible()));
     R.dirty = true;
     clearTimeout(R.saveTimer);
     R.saveTimer = setTimeout(flushProgress, 700);
@@ -1202,7 +1502,7 @@
     if (!R.dirty || !R.book || !state.me) return;
     R.dirty = false;
     const id = R.book.id;
-    const page = R.page;
+    const page = lastVisible();
     fetch(`/api/progress/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -1219,42 +1519,365 @@
     R.mode = 'manual';
     R.zoom = Math.min(4, Math.max(0.4, R.zoom * factor));
     updateReaderUi();
-    renderCurrent();
+    relayout();
   }
 
-  function closeReader() {
-    if (history.state && history.state.reader) history.back();
-    else doCloseReader();
+  /* ---------- Закладки и выделения (хранятся в аккаунте + копия на устройстве) ---------- */
+  const annKey = (bookId) => `ann_${state.me?.id ?? 'x'}_${bookId}`;
+  function annStore(bookId, a) {
+    lsSet(annKey(bookId), JSON.stringify({ bookmarks: a.bookmarks, highlights: a.highlights, updatedAt: a.updatedAt, dirty: a.dirty }));
   }
 
-  function doCloseReader() {
+  function annTouch() {
+    const a = R.ann;
+    a.rev++;
+    a.dirty = true;
+    if (R.book) annStore(R.book.id, a);
+    clearTimeout(R.annTimer);
+    R.annTimer = setTimeout(() => annPush(), 700);
+  }
+
+  async function annPush(keepalive = false) {
+    clearTimeout(R.annTimer);
+    const a = R.ann;
+    if (!a.dirty || !R.book || !state.me) return;
+    const id = R.book.id;
+    const rev = a.rev;
+    try {
+      const res = await fetch(`/api/annotations/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ bookmarks: a.bookmarks, highlights: a.highlights }),
+        keepalive,
+      });
+      if (!res.ok) throw new Error('save');
+      const d = await res.json();
+      if (a.rev === rev) { a.dirty = false; a.updatedAt = d.updatedAt || a.updatedAt; annStore(id, a); }
+    } catch { /* нет связи — повторим при следующем изменении или при открытии книги */ }
+  }
+
+  async function annOpen(book) {
+    const id = book.id;
+    const session = R.session;
+    let local = null;
+    try { local = JSON.parse(lsGet(annKey(id)) || 'null'); } catch { /* повреждённая копия */ }
+    R.ann = {
+      bookmarks: Array.isArray(local?.bookmarks) ? local.bookmarks : [],
+      highlights: Array.isArray(local?.highlights) ? local.highlights : [],
+      updatedAt: local?.updatedAt || 0,
+      dirty: !!local?.dirty,
+      rev: 0,
+    };
+    paintAll();
+    if (!state.me) return;
+    try {
+      const srv = await api('GET', `/api/annotations/${id}`);
+      if (session !== R.session) return;
+      if (R.ann.dirty) { annPush(); return; } // на устройстве есть несохранённые правки — они главнее
+      R.ann = { bookmarks: srv.bookmarks || [], highlights: srv.highlights || [], updatedAt: srv.updatedAt || 0, dirty: false, rev: 0 };
+      annStore(id, R.ann);
+      paintAll();
+    } catch { /* офлайн — работаем с копией на устройстве */ }
+  }
+
+  function paintPg(pg) {
+    const n = Number(pg?.dataset.page);
+    if (!n) return;
+    const layer = pg.querySelector('.hl-layer');
+    layer.innerHTML = R.ann.highlights.filter((h) => h.page === n).map((h) => h.rects.map((r) =>
+      `<div class="hl c-${esc(h.color)}" style="left:${r[0] * 100}%;top:${r[1] * 100}%;width:${r[2] * 100}%;height:${r[3] * 100}%"></div>`).join('')).join('');
+    pg.querySelector('.pg-bm')?.classList.toggle('on', R.ann.bookmarks.some((b) => b.page === n));
+  }
+
+  function paintAll() {
+    [R.pgL, R.pgR].forEach((pg) => pg && paintPg(pg));
+    updateReaderUi();
+    renderPanel();
+  }
+
+  function toggleBookmark(n) {
+    if (!n || !R.doc) return;
+    const bms = R.ann.bookmarks;
+    const i = bms.findIndex((b) => b.page === n);
+    if (i >= 0) bms.splice(i, 1);
+    else bms.push({ id: uid(), page: n, createdAt: Date.now() });
+    annTouch();
+    paintAll();
+    toast(i >= 0 ? `Закладка удалена (стр. ${n})` : `Закладка добавлена: страница ${n}`);
+  }
+
+  // склеиваем прямоугольники одной строки, чтобы выделение было сплошным
+  function mergeRects(list) {
+    const rs = list.filter((r) => r.width > 1 && r.height > 1)
+      .map((r) => ({ l: r.left, t: r.top, r: r.right, b: r.bottom }))
+      .sort((a, b) => a.t - b.t || a.l - b.l);
+    const out = [];
+    for (const r of rs) {
+      const o = out.find((x) => {
+        const ov = Math.min(x.b, r.b) - Math.max(x.t, r.t);
+        const minH = Math.min(x.b - x.t, r.b - r.t);
+        const gap = Math.max(r.l - x.r, x.l - r.r);
+        return ov > minH * 0.5 && gap < minH * 0.8;
+      });
+      if (o) { o.l = Math.min(o.l, r.l); o.r = Math.max(o.r, r.r); o.t = Math.min(o.t, r.t); o.b = Math.max(o.b, r.b); }
+      else out.push({ ...r });
+    }
+    return out;
+  }
+
+  function captureSelection() {
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed || !sel.rangeCount) return null;
+    const range = sel.getRangeAt(0);
+    const parts = [];
+    for (const pg of [R.pgL, R.pgR]) {
+      if (!pg?.dataset.page) continue;
+      const tl = pg.querySelector('.textLayer');
+      if (!tl || !range.intersectsNode(tl)) continue;
+      const whole = document.createRange();
+      whole.selectNodeContents(tl);
+      const cl = range.cloneRange();
+      if (cl.compareBoundaryPoints(Range.START_TO_START, whole) < 0) cl.setStart(whole.startContainer, whole.startOffset);
+      if (cl.compareBoundaryPoints(Range.END_TO_END, whole) > 0) cl.setEnd(whole.endContainer, whole.endOffset);
+      const text = cl.toString().replace(/\s+/g, ' ').trim();
+      if (!text) continue;
+      const box = pg.querySelector('.pgi').getBoundingClientRect();
+      const clamp01 = (v) => Math.min(1, Math.max(0, v));
+      const rects = mergeRects([...cl.getClientRects()]).map((r) => {
+        const x = clamp01((r.l - box.left) / box.width);
+        const y = clamp01((r.t - box.top) / box.height);
+        return [x, y, clamp01((r.r - box.left) / box.width) - x, clamp01((r.b - box.top) / box.height) - y];
+      }).filter((r) => r[2] > 0.002 && r[3] > 0.002);
+      if (rects.length) parts.push({ page: Number(pg.dataset.page), rects, text });
+    }
+    if (!parts.length) return null;
+    const bb = range.getBoundingClientRect();
+    return { parts, rect: { left: bb.left, right: bb.right, top: bb.top, bottom: bb.bottom } };
+  }
+
+  /* меню над выделенным текстом */
+  const swatches = (active) => HL_COLORS.map((c) =>
+    `<button type="button" class="sw ${c === active ? 'on' : ''}" data-c="${c}" title="${HL_NAMES[c]}" aria-label="${HL_NAMES[c]} цвет"></button>`).join('');
+
+  function placePop(rect, preferBelow) {
+    pop.hidden = false;
+    const h = pop.offsetHeight || 44;
+    const w = pop.offsetWidth || 220;
+    const cx = Math.min(Math.max((rect.left + rect.right) / 2, w / 2 + 8), window.innerWidth - w / 2 - 8);
+    let top = preferBelow ? rect.bottom + 12 : rect.top - h - 10;
+    if (top < 56) top = rect.bottom + 12;
+    if (top + h > window.innerHeight - 8) top = Math.max(56, rect.top - h - 10);
+    pop.style.left = `${cx}px`;
+    pop.style.top = `${top}px`;
+  }
+
+  function hidePop() {
+    if (pop.hidden && !R.popSel && !R.popHl) return;
+    pop.hidden = true;
+    R.popSel = null;
+    R.popHl = null;
+  }
+
+  function showSelPop(cap) {
+    R.popSel = cap;
+    R.popHl = null;
+    pop.innerHTML = `${swatches('')}<i class="sep"></i><button type="button" class="pb" data-act="copy">Копировать</button>`;
+    placePop(cap.rect, matchMedia('(pointer: coarse)').matches);
+  }
+
+  function showHlPop(h, rect) {
+    R.popHl = h.id;
+    R.popSel = null;
+    pop.innerHTML = `${swatches(h.color)}<i class="sep"></i><button type="button" class="pb del" data-act="del">Удалить</button>`;
+    placePop(rect, false);
+  }
+
+  function addHighlight(color) {
+    const cap = R.popSel;
+    if (!cap) return;
+    const t = Date.now();
+    for (const p of cap.parts) R.ann.highlights.push({ id: uid(), page: p.page, rects: p.rects, text: p.text, color, createdAt: t });
+    window.getSelection()?.removeAllRanges();
+    hidePop();
+    annTouch();
+    paintAll();
+    toast('Выделение сохранено');
+  }
+
+  pop.addEventListener('pointerdown', (e) => e.preventDefault()); // не сбрасываем выделение при нажатии
+  pop.addEventListener('mousedown', (e) => e.preventDefault());
+  pop.addEventListener('click', async (e) => {
+    const sw = e.target.closest('[data-c]');
+    const act = e.target.closest('[data-act]')?.dataset.act;
+    if (sw) {
+      if (R.popHl) {
+        const h = R.ann.highlights.find((x) => x.id === R.popHl);
+        if (h) { h.color = sw.dataset.c; annTouch(); paintAll(); }
+        hidePop();
+      } else addHighlight(sw.dataset.c);
+    } else if (act === 'copy') {
+      const text = R.popSel?.parts.map((p) => p.text).join(' ') || '';
+      try { await navigator.clipboard.writeText(text); toast('Текст скопирован'); } catch { toast('Не удалось скопировать', true); }
+      window.getSelection()?.removeAllRanges();
+      hidePop();
+    } else if (act === 'del') {
+      R.ann.highlights = R.ann.highlights.filter((x) => x.id !== R.popHl);
+      hidePop();
+      annTouch();
+      paintAll();
+      toast('Выделение удалено');
+    }
+  });
+
+  let selTimer;
+  function onSelectionSettled() {
+    if (reader.hidden || R.flipping || R.pointerDown) return;
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed) { if (R.popSel) hidePop(); return; }
+    if (!sel.anchorNode?.parentElement?.closest('.textLayer')) return;
+    const cap = captureSelection();
+    if (cap) showSelPop(cap); else hidePop();
+  }
+  document.addEventListener('selectionchange', () => {
     if (reader.hidden) return;
-    flushProgress();
-    R.token++;
-    if (R.task) { try { R.task.cancel(); } catch { /* ok */ } }
-    R.session++;
-    if (R.loading) { try { R.loading.destroy(); } catch { /* ok */ } }
-    R.loading = null;
-    R.doc = null;
-    R.book = null;
-    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
-    reader.hidden = true;
-    canvas.width = canvas.height = 0;
-    if (!$$('.modal').some((m) => !m.hidden)) document.body.classList.remove('no-scroll');
-    if (ROUTES.includes(state.route)) render(); // обновить прогресс на карточках
+    clearTimeout(selTimer);
+    selTimer = setTimeout(onSelectionSettled, 260);
+  });
+  stage.addEventListener('pointerdown', (e) => {
+    R.pointerDown = true;
+    if (!e.target.closest('.hl-pop')) hidePop();
+  });
+  const pointerUp = () => {
+    if (!R.pointerDown) return;
+    R.pointerDown = false;
+    clearTimeout(selTimer);
+    selTimer = setTimeout(onSelectionSettled, 60);
+  };
+  window.addEventListener('pointerup', pointerUp);
+  window.addEventListener('pointercancel', pointerUp);
+
+  // нажатие на уже выделенный текст — меню «цвет / удалить»
+  stage.addEventListener('click', (e) => {
+    if (R.flipping) return;
+    const sel = window.getSelection();
+    if (sel && !sel.isCollapsed) return;
+    if (e.target.closest('.pg-bm')) return;
+    const pg = e.target.closest('.pg');
+    if (!pg?.dataset.page) return;
+    const n = Number(pg.dataset.page);
+    const box = pg.querySelector('.pgi').getBoundingClientRect();
+    const x = (e.clientX - box.left) / box.width;
+    const y = (e.clientY - box.top) / box.height;
+    for (const h of R.ann.highlights) {
+      if (h.page !== n) continue;
+      const r = h.rects.find((q) => x >= q[0] && x <= q[0] + q[2] && y >= q[1] && y <= q[1] + q[3]);
+      if (r) {
+        showHlPop(h, { left: box.left + r[0] * box.width, right: box.left + (r[0] + r[2]) * box.width, top: box.top + r[1] * box.height, bottom: box.top + (r[1] + r[3]) * box.height });
+        return;
+      }
+    }
+    hidePop();
+  });
+
+  stage.addEventListener('click', (e) => {
+    const bm = e.target.closest('.pg-bm');
+    if (bm) toggleBookmark(Number(bm.dataset.bm));
+  });
+
+  /* панель «Закладки и выделения» */
+  let panelTab = 'bookmarks';
+  function openPanel(tab) {
+    if (tab) panelTab = tab;
+    panel.hidden = false;
+    $('#r-notes').setAttribute('aria-pressed', 'true');
+    renderPanel();
+  }
+  function closePanel() {
+    panel.hidden = true;
+    $('#r-notes')?.setAttribute('aria-pressed', 'false');
+  }
+  function renderPanel() {
+    if (panel.hidden) return;
+    $$('[data-ptab]', panel).forEach((t) => {
+      const on = t.dataset.ptab === panelTab;
+      t.classList.toggle('active', on);
+      t.setAttribute('aria-selected', String(on));
+    });
+    const body = $('#r-panel-body');
+    if (panelTab === 'bookmarks') {
+      const list = [...R.ann.bookmarks].sort((a, b) => a.page - b.page);
+      const here = firstVisible();
+      const has = list.some((b) => b.page === here);
+      body.innerHTML = `<button type="button" class="btn ghost r-add" data-pbm="${here}">${has ? `Убрать закладку со стр. ${here}` : `Добавить закладку на стр. ${here}`}</button>`
+        + (list.length ? list.map((b) => `<div class="r-item" data-go="${b.page}"><i class="bar"></i>
+            <div class="tx"><b>Страница ${b.page}</b><span>${R.total ? `${Math.floor((b.page / R.total) * 100)}% книги` : ''}</span></div>
+            <button type="button" class="rm" data-rm-bm="${esc(b.id)}" aria-label="Удалить закладку" title="Удалить">✕</button></div>`).join('')
+          : '<div class="r-empty">Закладок пока нет.<br>Нажмите на ленточку в углу страницы или на кнопку выше.</div>');
+    } else {
+      const list = [...R.ann.highlights].sort((a, b) => a.page - b.page || a.createdAt - b.createdAt);
+      body.innerHTML = list.length ? list.map((h) => `<div class="r-item" data-go="${h.page}"><i class="bar c-${esc(h.color)}"></i>
+          <div class="tx"><b>Страница ${h.page}</b><span dir="auto">${esc(h.text.length > 180 ? `${h.text.slice(0, 180)}…` : h.text)}</span></div>
+          <button type="button" class="rm" data-rm-hl="${esc(h.id)}" aria-label="Удалить выделение" title="Удалить">✕</button></div>`).join('')
+        : '<div class="r-empty">Выделений пока нет.<br>Выделите текст на странице — появится меню с цветами.</div>';
+    }
+  }
+  panel.addEventListener('click', (e) => {
+    const t = e.target.closest('[data-ptab]');
+    if (t) { panelTab = t.dataset.ptab; renderPanel(); return; }
+    const addBm = e.target.closest('[data-pbm]');
+    if (addBm) { toggleBookmark(Number(addBm.dataset.pbm)); return; }
+    const rmBm = e.target.closest('[data-rm-bm]');
+    if (rmBm) { R.ann.bookmarks = R.ann.bookmarks.filter((b) => b.id !== rmBm.dataset.rmBm); annTouch(); paintAll(); return; }
+    const rmHl = e.target.closest('[data-rm-hl]');
+    if (rmHl) { R.ann.highlights = R.ann.highlights.filter((h) => h.id !== rmHl.dataset.rmHl); annTouch(); paintAll(); return; }
+    const go = e.target.closest('[data-go]');
+    if (go) {
+      goTo(Number(go.dataset.go));
+      if (window.innerWidth < 700) closePanel();
+    }
+  });
+  $('#r-panel-x').onclick = closePanel;
+
+  // Esc сначала закрывает меню или панель, и только потом читалку
+  function readerEscape() {
+    if (!pop.hidden) { hidePop(); return true; }
+    if (!panel.hidden) { closePanel(); return true; }
+    return false;
   }
 
+  /* ---------- Кнопки и клавиши ---------- */
   window.addEventListener('popstate', () => { if (!reader.hidden) doCloseReader(); });
-  document.addEventListener('visibilitychange', () => { if (document.hidden) flushProgress(); });
-  window.addEventListener('pagehide', flushProgress);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) { flushProgress(); annPush(true); } });
+  window.addEventListener('pagehide', () => { flushProgress(); annPush(true); });
+  window.addEventListener('online', () => annPush());
 
   $('#r-close').onclick = closeReader;
-  $('#r-prev').onclick = () => goTo(R.page - 1);
-  $('#r-next').onclick = () => goTo(R.page + 1);
+  $('#r-prev').onclick = prev;
+  $('#r-next').onclick = next;
   $('#r-zoom-in').onclick = () => zoomBy(1.2);
   $('#r-zoom-out').onclick = () => zoomBy(1 / 1.2);
-  $('#r-fit').onclick = () => { R.mode = 'fit'; updateReaderUi(); renderCurrent(); };
+  $('#r-fit').onclick = () => { R.mode = 'fit'; updateReaderUi(); relayout(); };
   $('#r-night').onclick = () => setNight(!R.night);
+  $('#r-bookmode').onclick = () => {
+    R.bookMode = !R.bookMode;
+    lsSet('reader_book', R.bookMode ? '1' : '0');
+    updateReaderUi();
+    if (R.doc) relayout();
+    toast(R.bookMode ? 'Режим книги: разворот на две страницы' : 'Режим одной страницы');
+  };
+  $('#r-bm').onclick = () => toggleBookmark(firstVisible());
+  $('#r-notes').onclick = () => (panel.hidden ? openPanel() : closePanel());
+  $('#r-save').onclick = async () => {
+    const b = R.book;
+    if (!b) return;
+    if (!off.ok) { toast('Этот браузер не умеет сохранять книги на устройство', true); return; }
+    if (isOffline(b)) { toast(SAVED_MSG); return; }
+    if (off.busy.has(b.id)) { toast('Книга уже скачивается…'); return; }
+    toast('Скачиваем книгу…');
+    const ok = await downloadBook(b);
+    if (ok && isOffline(b)) toast(SAVED_MSG);
+  };
   pageInput.addEventListener('change', () => goTo(pageInput.value));
   pageInput.addEventListener('focus', () => pageInput.select());
 
@@ -1265,19 +1888,20 @@
     else (reader.requestFullscreen || reader.webkitRequestFullscreen).call(reader);
   };
   document.addEventListener('fullscreenchange', () => {
-    if (!reader.hidden && R.mode === 'fit') renderCurrent();
+    if (!reader.hidden && R.doc && R.mode === 'fit') relayout();
   });
 
   document.addEventListener('keydown', (e) => {
     if (reader.hidden || e.ctrlKey || e.metaKey || e.altKey) return;
     if (e.target.matches('input, textarea, select')) return;
     switch (e.key) {
-      case 'ArrowRight': case 'PageDown': goTo(R.page + 1); break;
-      case 'ArrowLeft': case 'PageUp': goTo(R.page - 1); break;
+      case 'ArrowRight': case 'PageDown': next(); break;
+      case 'ArrowLeft': case 'PageUp': prev(); break;
       case 'Home': goTo(1); break;
       case 'End': goTo(R.total); break;
       case '+': case '=': zoomBy(1.2); break;
       case '-': zoomBy(1 / 1.2); break;
+      case 'b': case 'B': toggleBookmark(firstVisible()); break;
       default: return;
     }
     e.preventDefault();
@@ -1285,9 +1909,12 @@
 
   let rzTimer;
   window.addEventListener('resize', () => {
-    if (reader.hidden || R.mode !== 'fit') return;
+    if (reader.hidden || !R.doc) return;
     clearTimeout(rzTimer);
-    rzTimer = setTimeout(renderCurrent, 200);
+    rzTimer = setTimeout(() => {
+      const twoUp = R.bookMode && stage.clientWidth >= 600;
+      if (R.mode === 'fit' || twoUp !== R.twoUp) relayout();
+    }, 200);
   });
 
   // свайп для листания (когда страница целиком влезает по ширине)
@@ -1300,8 +1927,10 @@
     const dx = e.changedTouches[0].clientX - touch.x;
     const dy = e.changedTouches[0].clientY - touch.y;
     touch = null;
+    const sel = window.getSelection();
+    if (sel && !sel.isCollapsed) return; // человек выделяет текст, а не листает
     if (Math.abs(dx) < 70 || Math.abs(dy) > 50 || stage.scrollWidth > stage.clientWidth + 2) return;
-    goTo(R.page + (dx < 0 ? 1 : -1));
+    if (dx < 0) next(); else prev();
   }, { passive: true });
 
   /* ================= Управление библиотекой ================= */

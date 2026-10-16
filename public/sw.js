@@ -79,6 +79,7 @@ self.addEventListener('fetch', (e) => {
 
   if (/^\/api\/books\/\d+\/pdf$/.test(p)) return e.respondWith(pdfResponse(req));
   if (/^\/api\/books\/\d+\/cover$/.test(p)) return e.respondWith(cacheFirst(req, API));
+  if (/^\/api\/annotations\//.test(p)) return; // закладки всегда с сервера; офлайн используется копия на устройстве
   if (p.startsWith('/api/')) {
     if (p === '/healthz') return;
     return e.respondWith(networkFirst(req, API));

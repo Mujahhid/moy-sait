@@ -81,18 +81,44 @@
         <button type="button" class="icon-btn" id="r-zoom-in" title="Увеличить" aria-label="Увеличить">+</button>
         <button type="button" class="icon-btn" id="r-fit" title="Вписать страницу в экран" aria-label="Вписать страницу в экран">⤢</button>
         <button type="button" class="icon-btn" id="r-full" title="Во весь экран" aria-label="Во весь экран">⛶</button>
+        <button type="button" class="icon-btn" id="r-bookmode" title="Режим книги: разворот и перелистывание" aria-label="Режим книги" aria-pressed="false">📖</button>
+        <button type="button" class="icon-btn" id="r-save" title="Сохранить книгу на устройство для чтения без интернета" aria-label="Сохранить книгу на устройство">✓</button>
+        <button type="button" class="icon-btn" id="r-bm" title="Закладка на этой странице (B)" aria-label="Закладка на этой странице" aria-pressed="false">
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M6.5 3.5h11v17L12 16.2 6.5 20.5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+        </button>
+        <button type="button" class="icon-btn" id="r-notes" title="Закладки и выделения" aria-label="Закладки и выделения">
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M5 7h14M5 12h14M5 17h9" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        </button>
         <button type="button" class="icon-btn" id="r-night" title="Ночной режим" aria-label="Ночной режим">☾</button>
       </div>
     </div>
-    <div class="reader-stage" id="r-stage">
+    <div class="reader-stage" id="r-stage" tabindex="-1">
       <div class="reader-loading" id="r-loading">Открываем книгу…</div>
-      <canvas id="r-canvas"></canvas>
+      <div class="book" id="r-book"></div>
     </div>
     <div class="reader-foot">
-      <button type="button" class="btn ghost" id="r-prev">← Назад</button>
-      <div class="reader-progress"><div id="r-bar"></div></div>
-      <button type="button" class="btn ghost" id="r-next">Дальше →</button>
+      <button type="button" class="btn ghost" id="r-prev" aria-label="Назад">←<span class="lbl"> Назад</span></button>
+      <div class="reader-center">
+        <div class="reader-status" id="r-status" aria-live="polite"></div>
+        <div class="reader-progress"><div id="r-bar"></div></div>
+      </div>
+      <button type="button" class="btn ghost" id="r-next" aria-label="Дальше"><span class="lbl">Дальше </span>→</button>
     </div>
+
+    <!-- Меню выделенного текста -->
+    <div class="hl-pop" id="r-pop" hidden role="toolbar" aria-label="Выделение текста"></div>
+
+    <!-- Панель закладок и выделений -->
+    <aside class="r-panel" id="r-panel" hidden aria-label="Закладки и выделения">
+      <div class="r-panel-head">
+        <div class="tabs" role="tablist">
+          <button type="button" role="tab" class="tab active" data-ptab="bookmarks">Закладки <span class="n" id="pn-bm">0</span></button>
+          <button type="button" role="tab" class="tab" data-ptab="highlights">Выделения <span class="n" id="pn-hl">0</span></button>
+        </div>
+        <button type="button" class="icon-btn" id="r-panel-x" aria-label="Закрыть панель">✕</button>
+      </div>
+      <div class="r-panel-body" id="r-panel-body"></div>
+    </aside>
   </section>
 
   <!-- Окно входа -->

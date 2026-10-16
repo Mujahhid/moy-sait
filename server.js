@@ -73,6 +73,14 @@ db.exec(`
     updated_at INTEGER NOT NULL,
     PRIMARY KEY (user_id, book_id)
   );
+
+  CREATE TABLE IF NOT EXISTS annotations (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    book_id INTEGER NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+    data TEXT NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, book_id)
+  );
 `);
 
 const now = () => Date.now();
@@ -906,6 +914,68 @@ route('DELETE', '/api/progress/:id', (ctx) => {
   requireUser(ctx);
   db.prepare('DELETE FROM progress WHERE user_id = ? AND book_id = ?').run(ctx.user.id, Number(ctx.params.id));
   sendJson(ctx.res, 200, { ok: true });
+});
+
+// --- Закладки и выделения (один документ на пользователя и книгу)
+const HL_COLORS = ['yellow', 'green', 'blue', 'pink'];
+const num01 = (v) => Math.min(1, Math.max(0, Number(v) || 0));
+const cleanId = (v) => String(v ?? '').replace(/[^\w-]/g, '').slice(0, 40);
+
+function cleanAnnotations(body, pages) {
+  const maxPage = pages > 0 ? pages : 100000;
+  const pageOf = (v) => {
+    const p = parseInt(v, 10);
+    return Number.isFinite(p) && p >= 1 && p <= maxPage ? p : 0;
+  };
+  const bookmarks = [];
+  for (const b of Array.isArray(body.bookmarks) ? body.bookmarks.slice(0, 2000) : []) {
+    const page = pageOf(b?.page);
+    if (!page) continue;
+    bookmarks.push({ id: cleanId(b.id) || `b${page}`, page, createdAt: Number(b.createdAt) || now() });
+  }
+  const highlights = [];
+  for (const h of Array.isArray(body.highlights) ? body.highlights.slice(0, 5000) : []) {
+    const page = pageOf(h?.page);
+    if (!page || !Array.isArray(h.rects)) continue;
+    const rects = h.rects
+      .slice(0, 200)
+      .map((r) => (Array.isArray(r) ? r.slice(0, 4).map(num01) : null))
+      .filter((r) => r && r.length === 4 && r[2] > 0 && r[3] > 0);
+    if (!rects.length) continue;
+    highlights.push({
+      id: cleanId(h.id) || `h${highlights.length}`,
+      page,
+      rects,
+      text: String(h.text ?? '').slice(0, 2000),
+      color: HL_COLORS.includes(h.color) ? h.color : 'yellow',
+      createdAt: Number(h.createdAt) || now(),
+    });
+  }
+  return { bookmarks, highlights };
+}
+
+route('GET', '/api/annotations/:id', (ctx) => {
+  requireUser(ctx);
+  const b = getBook(ctx.params.id);
+  if (!b) throw new HttpError(404, 'Книга не найдена');
+  const row = db.prepare('SELECT data, updated_at FROM annotations WHERE user_id = ? AND book_id = ?').get(ctx.user.id, b.id);
+  let data = { bookmarks: [], highlights: [] };
+  if (row) { try { data = JSON.parse(row.data); } catch { /* пусто */ } }
+  sendJson(ctx.res, 200, { ...data, updatedAt: row ? row.updated_at : 0 }, { 'Cache-Control': 'no-store' });
+});
+
+route('PUT', '/api/annotations/:id', async (ctx) => {
+  requireUser(ctx);
+  const b = getBook(ctx.params.id);
+  if (!b) throw new HttpError(404, 'Книга не найдена');
+  const body = await readJson(ctx.req, 1024 * 1024);
+  const data = cleanAnnotations(body || {}, b.pages);
+  const t = now();
+  db.prepare(
+    `INSERT INTO annotations (user_id, book_id, data, updated_at) VALUES (?, ?, ?, ?)
+     ON CONFLICT(user_id, book_id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`
+  ).run(ctx.user.id, b.id, JSON.stringify(data), t);
+  sendJson(ctx.res, 200, { ...data, updatedAt: t });
 });
 
 // --- Профиль
