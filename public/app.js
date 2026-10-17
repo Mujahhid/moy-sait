@@ -442,7 +442,7 @@
       state.me ? api('GET', '/api/progress').catch(() => ({ items: [] })) : Promise.resolve({ items: [] }),
     ]);
     const cont = prog.items.map((i) => i.book).filter((b) => !isFinished(b)).slice(0, 6);
-    const cta = state.me ? 'Открыть каталог' : 'Войти в читальный зал';
+    const cta = state.me ? 'Открыть библиотеку' : 'Войти в читальный зал';
 
     view.innerHTML = `
       <section class="hero">
@@ -455,7 +455,7 @@
       ${cont.length ? `<section class="shelf"><div class="shelf-head"><h2>Продолжить чтение</h2></div>
         <div class="grid">${cont.map(cardHtml).join('')}</div></section>` : ''}
       ${books.length ? `<section class="shelf"><div class="shelf-head"><h2>Книжная полка</h2>
-        <a href="#catalog">Весь каталог →</a></div>${bookcaseHtml(books)}</section>`
+        <a href="#catalog">Вся библиотека →</a></div>${bookcaseHtml(books)}</section>`
         : `<div class="empty" style="margin-top:32px">Пока в библиотеке нет книг.
             ${state.me?.isAdmin ? '<br><button type="button" class="btn primary" id="first-book">Добавить первую книгу</button>' : ''}</div>`}
       <p class="notice">Мы размещаем только книги из свободного доступа или с разрешения правообладателей.
@@ -738,14 +738,14 @@
   let searchTimer;
   async function renderCatalog() {
     view.innerHTML = `
-      <div class="page-head"><h1 class="page-title">Каталог</h1></div>
+      <div class="page-head"><h1 class="page-title">Библиотека</h1></div>
       <div id="continue"></div>
       <div class="search-sticky">
         <div class="search">
           <span class="glass" aria-hidden="true">⌕</span>
           <input id="q" type="text" enterkeyhint="search" autocomplete="off"
             placeholder="Ищите по названию, автору, издательству или теме." value="${esc(state.q)}"
-            aria-label="Поиск по каталогу">
+            aria-label="Поиск по библиотеке">
           <button type="button" class="clear" id="q-clear" aria-label="Очистить поиск" ${state.q ? '' : 'hidden'}>✕</button>
         </div>
         <p class="result-count" id="q-count" aria-live="polite"></p>
@@ -834,8 +834,8 @@
     view.innerHTML = `<div class="page-head"><h1 class="page-title">Избранное</h1></div>
       ${books.length
         ? `${spinesBlock(books)}<div class="grid" id="fav-grid">${books.map(cardHtml).join('')}</div>`
-        : `<div class="empty">В избранном пока пусто. Нажмите ♡ на обложке книги в каталоге.<br>
-           <a class="btn ghost" href="#catalog">Перейти в каталог</a></div>`}`;
+        : `<div class="empty">В избранном пока пусто. Нажмите ♡ на обложке книги в библиотеке.<br>
+           <a class="btn ghost" href="#catalog">Перейти в библиотеку</a></div>`}`;
     initShelves();
   }
 
