@@ -483,7 +483,7 @@
   function bookcaseHtml(books) {
     return shelfShell(books.map((b, i) => `
       <button type="button" role="listitem" class="cover spine" data-open="${b.id}" style="--h:${[220, 232, 210, 226][i % 4]}px"
-        title="${esc(b.title)}${b.author ? ' — ' + esc(b.author) : ''}" aria-label="Читать: ${esc(b.title)}">${coverHtml(b)}</button>`).join(''));
+        data-tip="${esc(b.title)}" data-pages="${b.pages || 0}" aria-label="Читать: ${esc(b.title)}">${coverHtml(b)}</button>`).join(''));
   }
 
   // каталог, издательства, избранное: книги боком, названия на корешках
@@ -495,12 +495,54 @@
     const ar = /[؀-ۿ]/.test(b.title) ? ' lang="ar"' : '';
     return `<button type="button" role="listitem" class="spine-book" data-open="${b.id}"
       style="--c:${SPINE_COLORS[h % SPINE_COLORS.length]};--h:${height}px;--w:${width}px"
-      title="${esc(b.title)}${b.author ? ' — ' + esc(b.author) : ''}" aria-label="Читать: ${esc(b.title)}">
+      data-tip="${esc(b.title)}" data-pages="${b.pages || 0}" aria-label="Читать: ${esc(b.title)}">
       <span class="sb-title"${ar} dir="auto">${esc(b.title)}</span></button>`;
   }
   const spinesHtml = (books) => `<div class="spineshelf">${shelfShell(books.map(spineHtml).join(''))}</div>`;
   const spinesBlock = (books) => `<div class="spines-wrap"><h2 class="spines-title">На полке</h2>
     <p class="spines-sub">Нажмите на корешок, чтобы открыть книгу.</p>${spinesHtml(books)}</div>`;
+
+  /* ---------- Плашка при наведении мыши на книгу на полке: название и число страниц ---------- */
+  const tipEl = document.createElement('div');
+  tipEl.className = 'book-tip';
+  tipEl.setAttribute('role', 'tooltip');
+  tipEl.hidden = true;
+  document.body.appendChild(tipEl);
+  let tipTarget = null;
+  let tipTimer = 0;
+  const pagesWord = (n) => (n % 10 === 1 && n % 100 !== 11 ? 'страница' : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? 'страницы' : 'страниц');
+  function hideTip() {
+    clearTimeout(tipTimer);
+    tipTarget = null;
+    tipEl.hidden = true;
+  }
+  function showTip(el) {
+    const pages = Number(el.dataset.pages) || 0;
+    tipEl.innerHTML = `<b dir="auto">${esc(el.dataset.tip)}</b>${pages ? `<span>${pages} ${pagesWord(pages)}</span>` : ''}`;
+    tipEl.hidden = false;
+    const r = el.getBoundingClientRect();
+    const w = tipEl.offsetWidth;
+    const h = tipEl.offsetHeight;
+    const left = Math.min(Math.max(r.left + r.width / 2 - w / 2, 8), window.innerWidth - w - 8);
+    let top = r.top - h - 10;
+    if (top < 8) top = r.bottom + 10; // сверху нет места — показываем снизу
+    tipEl.style.left = `${left}px`;
+    tipEl.style.top = `${top}px`;
+  }
+  // по движению мыши, а не по pointerover: если список перерисовался под курсором, плашка всё равно появится
+  document.addEventListener('pointermove', (e) => {
+    if (e.pointerType !== 'mouse') return;
+    const el = e.target.closest?.('[data-tip]');
+    if (el && el === tipTarget) return;
+    hideTip();
+    if (!el || !view.contains(el)) return;
+    tipTarget = el;
+    tipTimer = setTimeout(() => { if (tipTarget === el && el.isConnected) showTip(el); }, 180);
+  });
+  document.addEventListener('pointerdown', hideTip, true);
+  document.addEventListener('scroll', hideTip, true);
+  window.addEventListener('blur', hideTip);
+  document.addEventListener('keydown', hideTip, true);
 
   let shelfCleanups = [];
   let spinesCleanup = null;
