@@ -1815,14 +1815,10 @@
   window.addEventListener('pointerup', pointerUp);
   window.addEventListener('pointercancel', pointerUp);
 
-  // нажатие на уже выделенный текст — меню «цвет / удалить»
-  stage.addEventListener('click', (e) => {
-    if (R.flipping) return;
-    const sel = window.getSelection();
-    if (sel && !sel.isCollapsed) return;
-    if (e.target.closest('.pg-bm')) return;
+  // выделение под точкой клика (если есть)
+  function highlightAt(e) {
     const pg = e.target.closest('.pg');
-    if (!pg?.dataset.page) return;
+    if (!pg?.dataset.page) return null;
     const n = Number(pg.dataset.page);
     const box = pg.querySelector('.pgi').getBoundingClientRect();
     const x = (e.clientX - box.left) / box.width;
@@ -1830,12 +1826,33 @@
     for (const h of R.ann.highlights) {
       if (h.page !== n) continue;
       const r = h.rects.find((q) => x >= q[0] && x <= q[0] + q[2] && y >= q[1] && y <= q[1] + q[3]);
-      if (r) {
-        showHlPop(h, { left: box.left + r[0] * box.width, right: box.left + (r[0] + r[2]) * box.width, top: box.top + r[1] * box.height, bottom: box.top + (r[1] + r[3]) * box.height });
-        return;
-      }
+      if (r) return { h, rect: { left: box.left + r[0] * box.width, right: box.left + (r[0] + r[2]) * box.width, top: box.top + r[1] * box.height, bottom: box.top + (r[1] + r[3]) * box.height } };
     }
-    hidePop();
+    return null;
+  }
+
+  // нажатие на уже выделенный текст — меню «цвет / удалить»
+  stage.addEventListener('click', (e) => {
+    if (R.flipping) return;
+    const sel = window.getSelection();
+    if (sel && !sel.isCollapsed) return;
+    if (e.target.closest('.pg-bm')) return;
+    const hit = highlightAt(e);
+    if (hit) showHlPop(hit.h, hit.rect);
+    else hidePop();
+  });
+
+  // полный экран: листаем нажатием на левую и правую стороны книги
+  stage.addEventListener('click', (e) => {
+    if (!reader.classList.contains('full') || R.flipping || !R.doc) return;
+    if (e.target.closest('.pg-bm, .hl-pop, button, input, a')) return;
+    const sel = window.getSelection();
+    if (sel && !sel.isCollapsed) return;
+    if (highlightAt(e)) return;
+    const r = stage.getBoundingClientRect();
+    const x = (e.clientX - r.left) / r.width;
+    if (x < 0.35) prev();
+    else if (x > 0.65) next();
   });
 
   stage.addEventListener('click', (e) => {
@@ -1945,9 +1962,13 @@
     if (document.fullscreenElement) document.exitFullscreen();
     else (reader.requestFullscreen || reader.webkitRequestFullscreen).call(reader);
   };
-  document.addEventListener('fullscreenchange', () => {
+  // в полном экране нижняя плашка с кнопками убирается, остаются только страницы и проценты
+  const onFullChange = () => {
+    reader.classList.toggle('full', document.fullscreenElement === reader || document.webkitFullscreenElement === reader);
     if (!reader.hidden && R.doc && R.mode === 'fit') relayout();
-  });
+  };
+  document.addEventListener('fullscreenchange', onFullChange);
+  document.addEventListener('webkitfullscreenchange', onFullChange);
 
   document.addEventListener('keydown', (e) => {
     if (reader.hidden || e.ctrlKey || e.metaKey || e.altKey) return;
