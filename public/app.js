@@ -575,7 +575,11 @@
   /* ================= Издательства ================= */
   // Без выбора — сетка плиток. После выбора плитки уезжают влево списком, справа — шкаф с книгами издательства.
   // логотипы издательств (public/pub/*.jpg); сопоставление по названию без регистра, пробелов и дефисов
-  const PUB_LOGOS = { almidad: 'al-midad', darujour: 'dar-ujour', alimtisal: 'al-imtisal' };
+  const PUB_LOGOS = {
+    almidad: 'al-midad', darujour: 'dar-ujour', alimtisal: 'al-imtisal',
+    maktabazalzalya: 'maktaba-zalzalya', maktabatuzalzalya: 'maktaba-zalzalya', zalzalya: 'maktaba-zalzalya',
+    asaribnabbas: 'asar-ibn-abbas',
+  };
   const pubLogo = (name) => PUB_LOGOS[String(name).toLowerCase().replace(/[^a-zа-яё0-9]/g, '')];
   const pubIcon = (name) => {
     const logo = pubLogo(name);
