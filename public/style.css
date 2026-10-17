@@ -457,6 +457,58 @@ main { max-width: var(--maxw); margin: 0 auto; padding: 0 20px calc(120px + env(
 .pub .pub-ico { flex: 0 0 auto; width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; background: var(--paper-2); color: var(--green); font: 700 1.2rem var(--font-display); }
 .pub b { display: block; font: 600 1.1rem/1.2 var(--font-display); overflow-wrap: anywhere; }
 .pub .sub { color: var(--muted); font-size: .85rem; }
+
+/* раскладка: плитки слева списком, справа шкаф */
+.pub-layout { display: block; }
+.pub-layout .pub-grid { align-items: stretch; }
+.pub-all { display: none; align-items: center; padding: 8px 14px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--muted); font-size: .9rem; text-align: start; }
+.pub-all:hover { color: var(--ink); border-color: var(--green); }
+.pub.active { border-color: var(--green); background: color-mix(in srgb, var(--green) 10%, var(--card)); }
+.pub.active .pub-ico { background: var(--green); color: var(--paper); }
+.pub-stage { display: none; min-width: 0; }
+.pub-layout.has-sel .pub-stage { display: block; animation: pub-in .45s .12s ease both; }
+@keyframes pub-in { from { opacity: 0; transform: translateX(26px); } to { opacity: 1; transform: none; } }
+.pub-loading { padding: 40px 0; color: var(--muted); text-align: center; }
+.pub-stage-head { margin: 0 0 14px; }
+.pub-stage-head h2 { font: 600 1.7rem var(--font-display); margin: 0; overflow-wrap: anywhere; }
+.pub-stage-head p { margin: 2px 0 0; color: var(--muted); }
+
+.pub-layout.has-sel { display: grid; grid-template-columns: minmax(230px, 290px) minmax(0, 1fr); gap: 26px; align-items: start; }
+.pub-layout.has-sel .pub-grid {
+  display: flex; flex-direction: column; gap: 10px; margin-top: 0;
+  position: sticky; top: 84px; max-height: calc(100vh - 104px); overflow-y: auto; padding: 2px 4px 6px 2px;
+  scrollbar-width: thin; scrollbar-color: var(--line) transparent;
+}
+.pub-layout.has-sel .pub { flex: 0 0 auto; padding: 12px 14px; }
+.pub-layout.has-sel .pub-all { display: inline-flex; align-self: flex-start; }
+
+/* книжный шкаф: ряд за рядом, под каждым ряд — деревянная доска */
+.cabinet {
+  --row: calc(250px * var(--k, 1) + 36px);
+  --wood-1: var(--board-1); --wood-2: var(--board-2);
+  border-radius: 20px; padding: 14px 18px 0; overflow: hidden;
+  background: linear-gradient(180deg, var(--shelf-1), var(--shelf-2));
+  border: 8px solid var(--board-2);
+  box-shadow: inset 0 0 38px rgba(70, 50, 20, .18), var(--shadow);
+}
+.cab-shelves {
+  display: flex; flex-wrap: wrap; align-content: flex-start; column-gap: 6px; margin: 0 -18px; padding: 0 18px;
+  background: linear-gradient(180deg, transparent calc(100% - 20px), var(--wood-1) calc(100% - 20px), var(--wood-2) 100%) 0 0 / 100% var(--row) repeat-y;
+}
+.cab-slot { height: var(--row); display: flex; align-items: flex-end; padding-bottom: 20px; box-sizing: border-box; }
+.cab-slot .spine-book { position: relative; }
+
+@media (min-width: 900px) { .pub-layout.flying .pub-grid { overflow: visible; } }
+
+@media (max-width: 899px) {
+  .pub-layout.has-sel { display: block; }
+  .pub-layout.has-sel .pub-grid {
+    flex-direction: row; position: static; max-height: none; overflow-x: auto; overflow-y: hidden; margin-bottom: 18px; padding-bottom: 8px;
+  }
+  .pub-layout.has-sel .pub { min-width: 200px; }
+  .pub-layout.has-sel .pub-all { align-self: center; white-space: nowrap; }
+}
+@media (prefers-reduced-motion: reduce) { .pub-layout.has-sel .pub-stage { animation: none; } }
 .back-link { display: inline-flex; align-items: center; gap: 6px; margin-bottom: 4px; padding: 6px 12px 6px 8px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--muted); font-size: .9rem; }
 .back-link:hover { color: var(--ink); border-color: var(--green); }
 

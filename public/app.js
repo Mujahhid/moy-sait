@@ -573,32 +573,91 @@
   }
 
   /* ================= Издательства ================= */
-  async function renderPublishers() {
-    if (state.publisher) {
-      const { books } = await api('GET', '/api/books?' + new URLSearchParams({ publisher: state.publisher }));
-      view.innerHTML = `<div class="page-head">
-          <button type="button" class="back-link" id="pub-back">← Все издательства</button>
-          <h1 class="page-title" dir="auto">${esc(state.publisher)}</h1>
-          <p class="page-sub">${books.length} ${plural(books.length)}</p></div>
-        ${books.length ? `${spinesBlock(books)}<div class="grid">${books.map(cardHtml).join('')}</div>`
-          : '<div class="empty">У этого издательства пока нет книг.</div>'}`;
-      $('#pub-back').onclick = () => { state.publisher = ''; render(); };
-      initShelves();
+  // Без выбора — сетка плиток. После выбора плитки уезжают влево списком, справа — шкаф с книгами издательства.
+  const cabinetHtml = (books) => `<div class="cabinet"><div class="cab-shelves" role="list" aria-label="Книги издательства">${
+    books.map((b) => `<div class="cab-slot">${spineHtml(b)}</div>`).join('')}</div></div>`;
+
+  async function paintPubStage() {
+    const box = $('#pub-stage');
+    const name = state.publisher;
+    if (!box) return;
+    if (!name) { box.innerHTML = ''; return; }
+    box.innerHTML = '<div class="pub-loading">Расставляем книги на полки…</div>';
+    let books;
+    try {
+      ({ books } = await api('GET', '/api/books?' + new URLSearchParams({ publisher: name })));
+    } catch (e) {
+      if (state.publisher === name && $('#pub-stage') === box) box.innerHTML = `<div class="empty">${esc(e.message || 'Не удалось загрузить книги')}</div>`;
       return;
     }
+    if (state.publisher !== name || $('#pub-stage') !== box) return; // пока грузилось, выбрали другое
+    box.innerHTML = `<div class="pub-stage-head"><h2 dir="auto">${esc(name)}</h2><p>${books.length} ${plural(books.length)}</p></div>
+      ${books.length ? cabinetHtml(books) : '<div class="empty">У этого издательства пока нет книг.</div>'}`;
+  }
+
+  function syncPubLayout() {
+    const layout = $('#pub-layout');
+    if (!layout) return;
+    layout.classList.toggle('has-sel', !!state.publisher);
+    $$('.pub', layout).forEach((el) => {
+      const on = el.dataset.pub === state.publisher;
+      el.classList.toggle('active', on);
+      el.setAttribute('aria-pressed', String(on));
+    });
+    const sub = $('#pub-sub');
+    if (sub) sub.textContent = state.publisher ? 'Выберите другое издательство или вернитесь ко всем.' : 'Выберите издательство, чтобы увидеть его книги.';
+  }
+
+  // плавный переезд плиток из сетки в колонку (и обратно)
+  function pickPublisher(name) {
+    const layout = $('#pub-layout');
+    if (!layout) { state.publisher = name; render(); return; }
+    const items = $$('.pub', layout);
+    const first = items.map((e) => e.getBoundingClientRect());
+    state.publisher = name;
+    syncPubLayout();
+    paintPubStage();
+    if (reducedMotion()) return;
+    items.forEach((e, i) => {
+      const r = e.getBoundingClientRect();
+      const dx = first[i].left - r.left;
+      const dy = first[i].top - r.top;
+      if (!dx && !dy) return;
+      e.style.transition = 'none';
+      e.style.transform = `translate(${dx}px, ${dy}px)`;
+    });
+    layout.classList.add('flying'); // на время переезда список не обрезает плитки
+    void layout.offsetWidth;
+    items.forEach((e) => { e.style.transition = 'transform .5s cubic-bezier(.2, .8, .2, 1)'; e.style.transform = ''; });
+    setTimeout(() => { items.forEach((e) => { e.style.transition = ''; }); layout.classList.remove('flying'); }, 560);
+  }
+
+  async function renderPublishers() {
     const { publishers } = await api('GET', '/api/publishers');
-    view.innerHTML = `<div class="page-head"><h1 class="page-title">Издательства</h1>
-        <p class="page-sub">Выберите издательство, чтобы увидеть его книги.</p></div>
-      ${publishers.length
-        ? `<div class="pub-grid">${publishers.map((p) => `
-            <button type="button" class="pub" data-pub="${esc(p.name)}">
+    if (!publishers.length) {
+      view.innerHTML = `<div class="page-head"><h1 class="page-title">Издательства</h1></div>
+        <div class="empty">Здесь появятся издательства, когда вы укажете их у книг.${
+          state.me?.isAdmin ? '<br><button type="button" class="btn primary" id="first-book">Добавить книгу</button>' : ''}</div>`;
+      const fb = $('#first-book');
+      if (fb) fb.onclick = openManage;
+      return;
+    }
+    if (state.publisher && !publishers.some((p) => p.name === state.publisher)) state.publisher = '';
+    view.innerHTML = `<div class="page-head"><h1 class="page-title">Издательства</h1><p class="page-sub" id="pub-sub"></p></div>
+      <div class="pub-layout" id="pub-layout">
+        <div class="pub-grid" role="group" aria-label="Издательства">
+          <button type="button" class="pub-all" id="pub-all">← Все издательства</button>
+          ${publishers.map((p) => `
+            <button type="button" class="pub" data-pub="${esc(p.name)}" aria-pressed="false">
               <span class="pub-ico" aria-hidden="true">${esc([...p.name][0].toUpperCase())}</span>
               <span><b dir="auto">${esc(p.name)}</b><span class="sub">${p.count} ${plural(p.count)}</span></span>
-            </button>`).join('')}</div>`
-        : `<div class="empty">Здесь появятся издательства, когда вы укажете их у книг.${
-            state.me?.isAdmin ? '<br><button type="button" class="btn primary" id="first-book">Добавить книгу</button>' : ''}</div>`}`;
-    const fb = $('#first-book');
-    if (fb) fb.onclick = openManage;
+            </button>`).join('')}
+        </div>
+        <section class="pub-stage" id="pub-stage" aria-live="polite"></section>
+      </div>`;
+    $('#pub-all').onclick = () => pickPublisher('');
+    syncPubLayout();
+    paintPubStage();
   }
 
   function continueCard(b) {
@@ -793,9 +852,8 @@
     }
     const pub = e.target.closest('[data-pub]');
     if (pub) {
-      state.publisher = pub.dataset.pub;
       window.scrollTo(0, 0);
-      render();
+      pickPublisher(pub.dataset.pub);
       return;
     }
     const fav = e.target.closest('[data-fav]');
