@@ -574,6 +574,16 @@
 
   /* ================= Издательства ================= */
   // Без выбора — сетка плиток. После выбора плитки уезжают влево списком, справа — шкаф с книгами издательства.
+  // логотипы издательств (public/pub/*.jpg); сопоставление по названию без регистра, пробелов и дефисов
+  const PUB_LOGOS = { almidad: 'al-midad', darujour: 'dar-ujour', alimtisal: 'al-imtisal' };
+  const pubLogo = (name) => PUB_LOGOS[String(name).toLowerCase().replace(/[^a-zа-яё0-9]/g, '')];
+  const pubIcon = (name) => {
+    const logo = pubLogo(name);
+    return logo
+      ? `<span class="pub-ico has-logo" aria-hidden="true"><img src="/pub/${logo}.jpg" alt="" width="52" height="52" loading="lazy" draggable="false"></span>`
+      : `<span class="pub-ico" aria-hidden="true">${esc([...name][0].toUpperCase())}</span>`;
+  };
+
   const cabinetHtml = (books) => `<div class="cabinet"><div class="cab-shelves" role="list" aria-label="Книги издательства">${
     books.map((b) => `<div class="cab-slot">${spineHtml(b)}</div>`).join('')}</div></div>`;
 
@@ -649,7 +659,7 @@
           <button type="button" class="pub-all" id="pub-all">← Все издательства</button>
           ${publishers.map((p) => `
             <button type="button" class="pub" data-pub="${esc(p.name)}" aria-pressed="false">
-              <span class="pub-ico" aria-hidden="true">${esc([...p.name][0].toUpperCase())}</span>
+              ${pubIcon(p.name)}
               <span><b dir="auto">${esc(p.name)}</b><span class="sub">${p.count} ${plural(p.count)}</span></span>
             </button>`).join('')}
         </div>

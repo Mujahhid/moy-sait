@@ -460,7 +460,7 @@ main { max-width: var(--maxw); margin: 0 auto; padding: 0 20px calc(120px + env(
   border: 1px solid var(--line); background: var(--card); box-shadow: var(--shadow); transition: transform .15s, border-color .15s;
 }
 .pub:hover { transform: translateY(-2px); border-color: var(--green); }
-.pub .pub-ico { flex: 0 0 auto; width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; background: var(--paper-2); color: var(--green); font: 700 1.2rem var(--font-display); }
+.pub .pub-ico { flex: 0 0 auto; width: 52px; height: 52px; overflow: hidden; border-radius: 12px; display: grid; place-items: center; background: var(--paper-2); color: var(--green); font: 700 1.2rem var(--font-display); }
 .pub b { display: block; font: 600 1.1rem/1.2 var(--font-display); overflow-wrap: anywhere; }
 .pub .sub { color: var(--muted); font-size: .85rem; }
 
@@ -470,6 +470,9 @@ main { max-width: var(--maxw); margin: 0 auto; padding: 0 20px calc(120px + env(
 .pub-all { display: none; align-items: center; padding: 8px 14px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--muted); font-size: .9rem; text-align: start; }
 .pub-all:hover { color: var(--ink); border-color: var(--green); }
 .pub.active { border-color: var(--green); background: color-mix(in srgb, var(--green) 10%, var(--card)); }
+.pub-ico.has-logo { background: transparent; box-shadow: 0 0 0 1px var(--line); }
+.pub-ico img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.pub.active .pub-ico.has-logo { background: transparent; box-shadow: 0 0 0 2px var(--green); }
 .pub.active .pub-ico { background: var(--green); color: var(--paper); }
 .pub-stage { display: none; min-width: 0; }
 .pub-layout.has-sel .pub-stage { display: block; animation: pub-in .45s .12s ease both; }
