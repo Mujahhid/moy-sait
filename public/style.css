@@ -848,3 +848,10 @@ main { max-width: var(--maxw); margin: 0 auto; padding: 0 20px calc(120px + env(
 .book-tip b { font: 600 1rem/1.25 var(--font-display); overflow-wrap: anywhere; }
 .book-tip span { opacity: .75; font-size: .82rem; }
 @keyframes tip-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+/* телефон, полный экран: шапка читалки убирается, вместо неё — маленькая кнопка выхода в правом нижнем углу */
+.full-exit { display: none; position: absolute; bottom: max(4px, env(safe-area-inset-bottom)); right: max(8px, env(safe-area-inset-right)); z-index: 5; opacity: .75; box-shadow: var(--shadow); }
+@media (max-width: 640px) {
+  .reader.full .reader-bar { display: none; }
+  .reader.full .full-exit { display: inline-flex; }
+}

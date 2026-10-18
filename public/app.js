@@ -1308,6 +1308,8 @@
     hidePop();
     closePanel();
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    R.pseudoFull = false;
+    reader.classList.remove('full');
     reader.hidden = true;
     bookEl.replaceChildren();
     R.pgsEl = R.pgL = R.pgR = null;
@@ -1974,6 +1976,7 @@
   function readerEscape() {
     if (!pop.hidden) { hidePop(); return true; }
     if (!panel.hidden) { closePanel(); return true; }
+    if (R.pseudoFull) { R.pseudoFull = false; applyFull(); return true; }
     return false;
   }
 
@@ -2012,17 +2015,26 @@
   pageInput.addEventListener('change', () => goTo(pageInput.value));
   pageInput.addEventListener('focus', () => pageInput.select());
 
-  const fsBtn = $('#r-full');
-  if (!(document.fullscreenEnabled || reader.webkitRequestFullscreen)) fsBtn.hidden = true;
-  fsBtn.onclick = () => {
-    if (document.fullscreenElement) document.exitFullscreen();
-    else (reader.requestFullscreen || reader.webkitRequestFullscreen).call(reader);
-  };
-  // в полном экране нижняя плашка с кнопками убирается, остаются только страницы и проценты
-  const onFullChange = () => {
-    reader.classList.toggle('full', document.fullscreenElement === reader || document.webkitFullscreenElement === reader);
+  // Полный экран. Где браузер умеет (компьютер, Android) — настоящий; где нет (iPhone) — «облегчённый»:
+  // убираем лишнее с экрана читалки. В обоих случаях нижняя плашка уходит, листаем нажатием на края.
+  const nativeFull = () => document.fullscreenElement === reader || document.webkitFullscreenElement === reader;
+  function applyFull() {
+    reader.classList.toggle('full', nativeFull() || !!R.pseudoFull);
     if (!reader.hidden && R.doc && R.mode === 'fit') relayout();
-  };
+  }
+  async function toggleFull() {
+    if (nativeFull()) { try { await (document.exitFullscreen || document.webkitExitFullscreen).call(document); } catch { /* ok */ } return; }
+    if (R.pseudoFull) { R.pseudoFull = false; applyFull(); return; }
+    const req = reader.requestFullscreen || reader.webkitRequestFullscreen;
+    if (req && document.fullscreenEnabled !== false) {
+      try { await req.call(reader); return; } catch { /* браузер отказал — включаем облегчённый режим */ }
+    }
+    R.pseudoFull = true;
+    applyFull();
+  }
+  $('#r-full').onclick = toggleFull;
+  $('#r-full-exit').onclick = toggleFull;
+  const onFullChange = applyFull;
   document.addEventListener('fullscreenchange', onFullChange);
   document.addEventListener('webkitfullscreenchange', onFullChange);
 
