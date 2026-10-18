@@ -1,0 +1,11 @@
+# Настройки для Amvera Cloud (https://amvera.ru). Подробная инструкция: deploy/AMVERA.md
+meta:
+  environment: node
+  toolchain:
+    name: npm
+    version: 22        # образ node:22; сайту нужен Node.js 22.13+ (встроенный SQLite)
+
+run:
+  scriptName: server.js
+  persistenceMount: /data   # постоянное хранилище: здесь живут база и книги (переменная DATA_DIR=/data)
+  containerPort: 3000       # должен совпадать с переменной PORT=3000

@@ -34,6 +34,7 @@ node server.js          # http://localhost:3000
 ## Свой сервер (VPS)
 
 Готовый скрипт установки, автозапуск, HTTPS и перенос данных одним файлом — в [deploy/README.md](deploy/README.md).
+Для Amvera Cloud (платформа без администрирования сервера) — [deploy/AMVERA.md](deploy/AMVERA.md), настройки уже лежат в `amvera.yml`.
 В админке («Управление библиотекой») есть «Скачать копию» и «Восстановить из копии».
 
 ## Деплой на Railway
