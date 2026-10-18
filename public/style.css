@@ -855,3 +855,7 @@ main { max-width: var(--maxw); margin: 0 auto; padding: 0 20px calc(120px + env(
   .reader.full .reader-bar { display: none; }
   .reader.full .full-exit { display: inline-flex; }
 }
+
+.backup-box { margin-top: 26px; padding-top: 16px; border-top: 1px solid var(--line); }
+.backup-box .row { margin: 10px 0; }
+.form-error.ok { color: var(--green); }

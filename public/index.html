@@ -202,6 +202,18 @@
       </form>
       <h4 class="list-heading">Книги в библиотеке</h4>
       <div id="manage-list" class="manage-list"></div>
+      <section class="backup-box" aria-labelledby="backup-title">
+        <h4 id="backup-title" class="list-heading">Резервная копия</h4>
+        <p class="muted small">Один файл: все книги, обложки, аккаунты, прогресс, закладки и выделения. Нужен для переезда на другой сервер и на случай сбоя.</p>
+        <div class="row">
+          <a class="btn ghost" id="backup-dl" href="/api/admin/backup" download>Скачать копию</a>
+          <label class="btn ghost file-btn">Восстановить из копии
+            <input type="file" id="restore-input" accept=".tar,application/x-tar" hidden>
+          </label>
+        </div>
+        <div class="upload-progress" id="restore-progress" hidden><div id="restore-bar"></div><span id="restore-pct"></span></div>
+        <p class="form-error" id="restore-msg" role="status"></p>
+      </section>
     </div>
   </div>
 

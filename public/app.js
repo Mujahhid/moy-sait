@@ -2106,6 +2106,50 @@
     setPreview(null);
   }
 
+  /* ---------- Резервная копия: восстановление из файла ---------- */
+  $('#restore-input').addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    const msg = $('#restore-msg');
+    msg.classList.remove('ok');
+    if (!confirm(`Восстановить данные из «${file.name}»?\n\nВсе текущие книги, аккаунты и закладки на этом сайте будут ЗАМЕНЕНЫ содержимым копии. Прежние данные сохранятся на сервере в папке before-restore.`)) return;
+    const prog = $('#restore-progress');
+    prog.hidden = false;
+    $('#restore-bar').style.width = '0';
+    $('#restore-pct').textContent = '0%';
+    msg.textContent = 'Загружаем копию…';
+    const x = new XMLHttpRequest();
+    x.open('POST', '/api/admin/restore');
+    x.setRequestHeader('X-Restore-Confirm', 'yes');
+    x.setRequestHeader('Content-Type', 'application/x-tar');
+    x.upload.onprogress = (ev) => {
+      if (!ev.lengthComputable) return;
+      const p = Math.round((ev.loaded / ev.total) * 100);
+      $('#restore-bar').style.width = `${p}%`;
+      $('#restore-pct').textContent = `${p}%`;
+    };
+    x.onerror = () => { prog.hidden = true; msg.textContent = 'Связь прервалась. Копия не применена — попробуйте ещё раз.'; };
+    x.onload = async () => {
+      if (x.status !== 200) {
+        prog.hidden = true;
+        let m = 'Не удалось восстановить копию';
+        try { m = JSON.parse(x.responseText).error || m; } catch { /* ok */ }
+        msg.textContent = m;
+        return;
+      }
+      msg.classList.add('ok');
+      msg.textContent = 'Копия принята. Сервер перезапускается…';
+      // ждём, пока сервер поднимется с новыми данными, и перезагружаем страницу
+      for (let i = 0; i < 60; i++) {
+        await new Promise((r) => setTimeout(r, 1500));
+        try { const r = await fetch('/healthz', { cache: 'no-store' }); if (r.ok && i > 1) { location.reload(); return; } } catch { /* сервер ещё перезапускается */ }
+      }
+      msg.textContent = 'Сервер не вернулся за 90 секунд. Проверьте его вручную: данные уже приняты.';
+    };
+    x.send(file);
+  });
+
   async function openManage() {
     if (!state.me?.isAdmin) return;
     resetForm();

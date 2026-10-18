@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
+import { writeBackup, receiveRestore, applyPendingRestore, startAutoBackup } from './backup.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -19,6 +20,8 @@ const ADMIN_NICK = (process.env.ADMIN_NICK || '').trim().toLowerCase();
 const REGISTRATION_OPEN = (process.env.REGISTRATION || 'open') !== 'closed';
 const SESSION_DAYS = 30;
 
+fs.mkdirSync(DATA_DIR, { recursive: true });
+applyPendingRestore(DATA_DIR); // если в админке загружали резервную копию — подменяем данные до открытия базы
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 // ---------- База данных ----------
@@ -978,6 +981,26 @@ route('PUT', '/api/annotations/:id', async (ctx) => {
   sendJson(ctx.res, 200, { ...data, updatedAt: t });
 });
 
+// --- Резервная копия (только администратор): скачать одним файлом / восстановить из него
+route('GET', '/api/admin/backup', async (ctx) => {
+  requireAdmin(ctx);
+  await writeBackup({ db, dataDir: DATA_DIR, uploadDir: UPLOAD_DIR, res: ctx.res });
+});
+
+route('POST', '/api/admin/restore', async (ctx) => {
+  requireAdmin(ctx);
+  if (ctx.req.headers['x-restore-confirm'] !== 'yes') throw new HttpError(400, 'Нужно подтверждение восстановления');
+  let info;
+  try {
+    info = await receiveRestore({ req: ctx.req, dataDir: DATA_DIR });
+  } catch (e) {
+    throw new HttpError(400, e.message || 'Не удалось прочитать резервную копию');
+  }
+  sendJson(ctx.res, 200, { ok: true, files: info.files });
+  // перезапуск: менеджер процессов (systemd, Railway) поднимет сервер снова, и данные подменятся при старте
+  setTimeout(() => { try { db.close(); } catch { /* ok */ } process.exit(3); }, 700);
+});
+
 // --- Профиль
 route('GET', '/api/stats', (ctx) => {
   requireUser(ctx);
@@ -1042,7 +1065,9 @@ server.requestTimeout = 0; // большие PDF могут грузиться �
 server.headersTimeout = 60000;
 server.keepAliveTimeout = 65000; // чуть больше, чем у прокси Railway
 
-server.listen(PORT, '0.0.0.0', () => {
+if (process.env.AUTO_BACKUP !== '0') startAutoBackup({ db, dataDir: DATA_DIR });
+
+server.listen(PORT, process.env.HOST || '0.0.0.0', () => {
   console.log(`Библиотека запущена: http://localhost:${PORT}  (данные: ${DATA_DIR})`);
 });
 
