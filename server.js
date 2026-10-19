@@ -921,6 +921,7 @@ route('DELETE', '/api/progress/:id', (ctx) => {
 
 // --- Закладки и выделения (один документ на пользователя и книгу)
 const HL_COLORS = ['yellow', 'green', 'blue', 'pink'];
+const TOPIC_MAX = 40;
 const num01 = (v) => Math.min(1, Math.max(0, Number(v) || 0));
 const cleanId = (v) => String(v ?? '').replace(/[^\w-]/g, '').slice(0, 40);
 
@@ -954,7 +955,15 @@ function cleanAnnotations(body, pages) {
       createdAt: Number(h.createdAt) || now(),
     });
   }
-  return { bookmarks, highlights };
+  // темы выделений: название для каждого цвета (например, жёлтый — «Акыда»)
+  const topics = {};
+  if (body.topics && typeof body.topics === 'object') {
+    for (const c of HL_COLORS) {
+      const name = String(body.topics[c] ?? '').replace(/\s+/g, ' ').trim().slice(0, TOPIC_MAX);
+      if (name) topics[c] = name;
+    }
+  }
+  return { bookmarks, highlights, topics, legendDone: body.legendDone === true };
 }
 
 route('GET', '/api/annotations/:id', (ctx) => {
@@ -962,8 +971,8 @@ route('GET', '/api/annotations/:id', (ctx) => {
   const b = getBook(ctx.params.id);
   if (!b) throw new HttpError(404, 'Книга не найдена');
   const row = db.prepare('SELECT data, updated_at FROM annotations WHERE user_id = ? AND book_id = ?').get(ctx.user.id, b.id);
-  let data = { bookmarks: [], highlights: [] };
-  if (row) { try { data = JSON.parse(row.data); } catch { /* пусто */ } }
+  let data = { bookmarks: [], highlights: [], topics: {}, legendDone: false };
+  if (row) { try { data = { ...data, ...JSON.parse(row.data) }; } catch { /* пусто */ } }
   sendJson(ctx.res, 200, { ...data, updatedAt: row ? row.updated_at : 0 }, { 'Cache-Control': 'no-store' });
 });
 
