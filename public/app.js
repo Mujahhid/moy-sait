@@ -121,7 +121,7 @@
     return `<article class="card" data-card="${b.id}">
       <button type="button" class="cover" data-open="${b.id}" aria-label="Читать: ${esc(b.title)}">${coverHtml(b)}</button>
       <button type="button" class="fav ${b.favorite ? 'on' : ''}" data-fav="${b.id}" aria-pressed="${!!b.favorite}"
-        aria-label="${b.favorite ? 'Убрать из избранного' : 'В избранное'}">${b.favorite ? '♥' : '♡'}</button>
+        aria-label="${b.favorite ? 'Убрать из «Хочу прочитать»' : 'Хочу прочитать'}">${b.favorite ? '♥' : '♡'}</button>
       <div class="meta" data-open="${b.id}" style="cursor:pointer">
         <h3 dir="auto">${esc(b.title)}</h3>
         <p class="cinfo">${esc(info)}</p>
@@ -879,20 +879,39 @@
         }</div>`;
   }
 
+  // «Мои книги»: «Хочу прочитать» (то, что добавлено кнопкой ♡), «Читаю» и «Прочитано»
+  const MYBOOKS = { tab: 'want' };
   async function renderFavorites() {
     if (!state.me) {
-      view.innerHTML = `<div class="page-head"><h1 class="page-title">Избранное</h1></div>
-        <div class="empty">Войдите, чтобы сохранять книги в избранное.<br>
+      view.innerHTML = `<div class="page-head"><h1 class="page-title">Мои книги</h1></div>
+        <div class="empty">Войдите, чтобы собрать свои книги: «Хочу прочитать», «Читаю» и «Прочитано».<br>
         <button type="button" class="btn primary" id="fav-login">Войти</button></div>`;
       $('#fav-login').onclick = () => openAuth('login', render);
       return;
     }
-    const { books } = await api('GET', '/api/favorites');
-    view.innerHTML = `<div class="page-head"><h1 class="page-title">Избранное</h1></div>
+    const [fav, prog] = await Promise.all([api('GET', '/api/favorites'), api('GET', '/api/progress')]);
+    const all = prog.items.map((i) => i.book);
+    const lists = {
+      want: fav.books,
+      reading: all.filter((b) => !isFinished(b)),
+      done: all.filter(isFinished),
+    };
+    const labels = { want: 'Хочу прочитать', reading: 'Читаю', done: 'Прочитано' };
+    const empty = {
+      want: 'В списке «Хочу прочитать» пока пусто. Нажмите ♡ на обложке книги в библиотеке — она появится здесь.',
+      reading: 'Вы пока ничего не читаете. Откройте любую книгу — она появится здесь.',
+      done: 'Прочитанных книг пока нет.',
+    };
+    const tab = lists[MYBOOKS.tab] ? MYBOOKS.tab : 'want';
+    const books = lists[tab];
+    view.innerHTML = `<div class="page-head"><h1 class="page-title">Мои книги</h1></div>
+      <div class="tabs mybooks-tabs" role="tablist">${Object.keys(labels).map((id) => `
+        <button type="button" role="tab" class="tab ${id === tab ? 'active' : ''}" aria-selected="${id === tab}" data-mytab="${id}">${labels[id]} <span class="n">${lists[id].length}</span></button>`).join('')}</div>
       ${books.length
         ? `${spinesBlock(books)}<div class="grid" id="fav-grid">${books.map(cardHtml).join('')}</div>`
-        : `<div class="empty">В избранном пока пусто. Нажмите ♡ на обложке книги в библиотеке.<br>
+        : `<div class="empty">${empty[tab]}<br>
            <a class="btn ghost" href="#catalog">Перейти в библиотеку</a></div>`}`;
+    $$('[data-mytab]', view).forEach((t) => (t.onclick = () => { MYBOOKS.tab = t.dataset.mytab; renderFavorites(); }));
     initShelves();
   }
 
@@ -950,10 +969,10 @@
       b.classList.toggle('on', on);
       b.textContent = on ? '♥' : '♡';
       b.setAttribute('aria-pressed', on);
-      b.setAttribute('aria-label', on ? 'Убрать из избранного' : 'В избранное');
+      b.setAttribute('aria-label', on ? 'Убрать из «Хочу прочитать»' : 'Хочу прочитать');
     });
     if (state.route === 'favorites' && !on) renderFavorites();
-    toast(on ? 'Добавлено в избранное' : 'Убрано из избранного');
+    toast(on ? 'Добавлено в «Хочу прочитать»' : 'Убрано из «Хочу прочитать»');
   }
 
   /* ================= Модальные окна ================= */
@@ -1103,7 +1122,7 @@
       <div class="stats">
         <div class="stat"><b>${stats.reading}</b><span>читаю</span></div>
         <div class="stat"><b>${stats.finished}</b><span>прочитано</span></div>
-        <div class="stat"><b>${stats.favorites}</b><span>в избранном</span></div>
+        <div class="stat"><b>${stats.favorites}</b><span>хочу прочитать</span></div>
       </div>
       ${cont.length ? `<h4>Продолжить чтение</h4><div class="cont">${cont.map((b) => `
         <button type="button" class="cont-item" data-continue="${b.id}">${thumbHtml(b)}
