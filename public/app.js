@@ -1105,6 +1105,7 @@
           <span class="txt"><b dir="auto">${esc(b.title)}</b>
           <span class="sub">${b.pages > 0 ? `стр. ${b.progress.page} из ${b.pages}` : `стр. ${b.progress.page}`}</span></span>
         </button>`).join('')}</div>` : ''}
+      <button type="button" class="btn ghost wide p-notes" id="p-notes">Мои закладки <b>${stats.bookmarks || 0}</b> и выделения <b>${stats.highlights || 0}</b></button>
       <div class="profile-actions">
         ${state.me.isAdmin ? '<button type="button" class="btn primary" id="p-manage">Управление библиотекой</button>' : ''}
         <button type="button" class="btn ghost" id="p-pass">Сменить пароль</button>
@@ -1121,6 +1122,7 @@
       closeModal($('#m-profile'));
       openReader(Number(b.dataset.continue));
     }));
+    $('#p-notes').onclick = () => { closeModal($('#m-profile')); openNotes(); };
     const pm = $('#p-manage');
     if (pm) pm.onclick = () => { closeModal($('#m-profile')); openManage(); };
     $('#p-pass').onclick = () => { $('#pw-form').hidden = !$('#pw-form').hidden; };
@@ -1147,6 +1149,86 @@
       }
     });
   }
+
+  /* ================= Закладки и выделения по всем книгам ================= */
+  const NOTES = { tab: 'highlights', books: [] };
+
+  // разделы выделений = темы: выделения с одним названием собираются вместе из всех книг
+  function noteGroups() {
+    const map = new Map();
+    for (const b of NOTES.books) {
+      for (const h of b.highlights) {
+        const name = String(b.topics?.[h.color] || '').trim();
+        const key = name ? `t:${name.toLowerCase()}` : `c:${h.color}`;
+        let g = map.get(key);
+        if (!g) { g = { name, colors: {}, items: [] }; map.set(key, g); }
+        g.colors[h.color] = (g.colors[h.color] || 0) + 1;
+        g.items.push({ ...h, book: b });
+      }
+    }
+    const groups = [...map.values()];
+    for (const g of groups) {
+      g.color = Object.entries(g.colors).sort((a, c) => c[1] - a[1])[0][0];
+      g.label = g.name || `Без темы · ${HL_NAMES[g.color] || g.color}`;
+      g.items.sort((a, c) => a.book.title.localeCompare(c.book.title, 'ru') || a.page - c.page || (a.createdAt || 0) - (c.createdAt || 0));
+    }
+    // сначала темы с названием, потом «без темы»
+    return groups.sort((a, c) => (!!c.name - !!a.name) || c.items.length - a.items.length || a.label.localeCompare(c.label, 'ru'));
+  }
+
+  function renderNotes() {
+    const body = $('#notes-body');
+    const books = NOTES.books;
+    const nHl = books.reduce((n, b) => n + b.highlights.length, 0);
+    const nBm = books.reduce((n, b) => n + b.bookmarks.length, 0);
+    const tab = (id, label, n) => `<button type="button" role="tab" class="tab ${NOTES.tab === id ? 'active' : ''}" aria-selected="${NOTES.tab === id}" data-ntab="${id}">${label} <span class="n">${n}</span></button>`;
+    let list;
+    if (NOTES.tab === 'highlights') {
+      const groups = noteGroups();
+      const openAll = nHl <= 40;
+      list = groups.length ? groups.map((g, i) => `<details class="n-sec" ${openAll || i === 0 ? 'open' : ''}>
+          <summary><i class="tdot c-${esc(g.color)}"></i><b dir="auto">${esc(g.label)}</b><span class="cnt">${g.items.length}</span></summary>
+          ${g.items.map((h) => `<button type="button" class="n-item" data-nbook="${h.book.id}" data-npage="${h.page}">
+            <i class="nbar c-${esc(h.color)}"></i>
+            <span class="tx"><span class="src" dir="auto">${esc(h.book.title)} · стр. ${h.page}</span>
+            <span class="q" dir="auto">${esc(String(h.text).length > 220 ? `${String(h.text).slice(0, 220)}…` : h.text)}</span></span></button>`).join('')}
+        </details>`).join('')
+        : '<div class="r-empty">Выделений пока нет.<br>Откройте книгу и выделите текст — он появится здесь, сгруппированный по темам.</div>';
+    } else {
+      const withBm = books.filter((b) => b.bookmarks.length);
+      list = withBm.length ? withBm.map((b) => `<details class="n-sec" open>
+          <summary><b dir="auto">${esc(b.title)}</b><span class="cnt">${b.bookmarks.length}</span></summary>
+          ${[...b.bookmarks].sort((x, y) => x.page - y.page).map((m) => `<button type="button" class="n-item" data-nbook="${b.id}" data-npage="${m.page}">
+            <i class="nbar"></i>
+            <span class="tx"><span class="src">Страница ${m.page}</span>${b.pages > 0 ? `<span class="q">${Math.floor((m.page / b.pages) * 100)}% книги</span>` : ''}</span></button>`).join('')}
+        </details>`).join('')
+        : '<div class="r-empty">Закладок пока нет.<br>Нажмите на ленточку в углу страницы в читалке.</div>';
+    }
+    body.innerHTML = `<div class="tabs" role="tablist">${tab('highlights', 'Выделения', nHl)}${tab('bookmarks', 'Закладки', nBm)}</div>${list}`;
+  }
+
+  async function openNotes() {
+    const body = $('#notes-body');
+    body.innerHTML = '<p class="muted">Загрузка…</p>';
+    openModal('m-notes');
+    try {
+      NOTES.books = (await api('GET', '/api/my-annotations')).books || [];
+    } catch (e) {
+      body.innerHTML = `<p class="form-error">${esc(e.message)}</p>`;
+      return;
+    }
+    renderNotes();
+  }
+
+  $('#notes-body').addEventListener('click', (e) => {
+    const t = e.target.closest('[data-ntab]');
+    if (t) { NOTES.tab = t.dataset.ntab; renderNotes(); return; }
+    const it = e.target.closest('[data-nbook]');
+    if (it) {
+      closeModal($('#m-notes'));
+      openReader(Number(it.dataset.nbook), Number(it.dataset.npage));
+    }
+  });
 
   /* ================= Читалка (pdf.js) ================= */
   const lsGet = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
@@ -1232,7 +1314,7 @@
   }
 
   /* ---------- Открытие и закрытие ---------- */
-  async function openReader(id) {
+  async function openReader(id, goPage = 0) {
     // модуль чтения и данные книги грузим одновременно
     let pdfjsLib, book;
     try {
@@ -1282,7 +1364,7 @@
       if (session !== R.session) return;
       const rv = refPage.getViewport({ scale: 1 });
       R.ref = { w: rv.width, h: rv.height };
-      const saved = book.progress?.page || Number(lsGet(`kp_${id}`)) || 1;
+      const saved = goPage || book.progress?.page || Number(lsGet(`kp_${id}`)) || 1; // goPage: открыли из закладок или выделений
       R.page = clampPage(saved);
       pageInput.max = R.total;
       $('#r-total').textContent = `/ ${R.total}`;

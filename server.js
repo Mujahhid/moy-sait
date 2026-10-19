@@ -976,6 +976,31 @@ route('GET', '/api/annotations/:id', (ctx) => {
   sendJson(ctx.res, 200, { ...data, updatedAt: row ? row.updated_at : 0 }, { 'Cache-Control': 'no-store' });
 });
 
+// Все закладки и выделения пользователя по всем книгам (для раздела в профиле). Координаты выделений не отдаём.
+function allAnnotations(userId) {
+  const rows = db
+    .prepare(
+      `SELECT a.data, b.id, b.title, b.author, b.pages FROM annotations a
+       JOIN books b ON b.id = a.book_id WHERE a.user_id = ? ORDER BY a.updated_at DESC`
+    )
+    .all(userId);
+  const books = [];
+  for (const r of rows) {
+    let d;
+    try { d = JSON.parse(r.data); } catch { continue; }
+    const bookmarks = (Array.isArray(d.bookmarks) ? d.bookmarks : []).map((b) => ({ id: b.id, page: b.page, createdAt: b.createdAt }));
+    const highlights = (Array.isArray(d.highlights) ? d.highlights : []).map((h) => ({ id: h.id, page: h.page, text: h.text, color: h.color, createdAt: h.createdAt }));
+    if (!bookmarks.length && !highlights.length) continue;
+    books.push({ id: r.id, title: r.title, author: r.author, pages: r.pages, topics: d.topics && typeof d.topics === 'object' ? d.topics : {}, bookmarks, highlights });
+  }
+  return books;
+}
+
+route('GET', '/api/my-annotations', (ctx) => {
+  requireUser(ctx);
+  sendJson(ctx.res, 200, { books: allAnnotations(ctx.user.id) }, { 'Cache-Control': 'no-store' });
+});
+
 route('PUT', '/api/annotations/:id', async (ctx) => {
   requireUser(ctx);
   const b = getBook(ctx.params.id);
@@ -1014,7 +1039,10 @@ route('POST', '/api/admin/restore', async (ctx) => {
 route('GET', '/api/stats', (ctx) => {
   requireUser(ctx);
   const one = (sql) => db.prepare(sql).get(ctx.user.id).c;
+  const notes = allAnnotations(ctx.user.id);
   sendJson(ctx.res, 200, {
+    bookmarks: notes.reduce((n, b) => n + b.bookmarks.length, 0),
+    highlights: notes.reduce((n, b) => n + b.highlights.length, 0),
     reading: one(
       `SELECT COUNT(*) AS c FROM progress p JOIN books b ON b.id = p.book_id
        WHERE p.user_id = ? AND (b.pages = 0 OR p.page < b.pages)`
