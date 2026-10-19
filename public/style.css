@@ -848,6 +848,28 @@ main { max-width: var(--maxw); margin: 0 auto; padding: 0 20px calc(120px + env(
 .tdot.c-yellow { background: #ffd500; } .tdot.c-green { background: #5ac85a; }
 .tdot.c-blue { background: #46a0ff; } .tdot.c-pink { background: #ff69a0; }
 
+/* профиль: кнопка «Мои закладки и выделения» */
+.p-notes { margin-bottom: 14px; }
+.p-notes b { color: var(--green); }
+
+/* окно «Закладки и выделения» по всем книгам */
+#notes-body .tabs .tab .n { opacity: .6; font-size: .8rem; margin-left: 2px; }
+.n-sec { border: 1px solid var(--line); border-radius: 14px; background: var(--card); margin-bottom: 10px; overflow: hidden; }
+.n-sec summary { display: flex; align-items: center; gap: 10px; padding: 12px 14px; cursor: pointer; list-style: none; }
+.n-sec summary::-webkit-details-marker { display: none; }
+.n-sec summary::after { content: '▾'; margin-left: 4px; color: var(--muted); transition: transform .15s; }
+.n-sec:not([open]) summary::after { transform: rotate(-90deg); }
+.n-sec summary b { flex: 1; min-width: 0; font: 600 1.15rem var(--font-display); overflow-wrap: anywhere; }
+.n-sec .cnt { color: var(--muted); font-size: .85rem; }
+.n-item { display: flex; align-items: stretch; gap: 10px; width: 100%; text-align: left; padding: 10px 14px; border: 0; border-top: 1px solid var(--line); background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.n-item:hover { background: rgba(127,127,127,.09); }
+.nbar { flex: none; width: 5px; min-height: 22px; border-radius: 3px; background: #c0392b; }
+.nbar.c-yellow { background: #ffd500; } .nbar.c-green { background: #5ac85a; }
+.nbar.c-blue { background: #46a0ff; } .nbar.c-pink { background: #ff69a0; }
+.n-item .tx { flex: 1; min-width: 0; }
+.n-item .src { display: block; font-weight: 600; font-size: .9rem; overflow-wrap: anywhere; }
+.n-item .q { display: block; color: var(--muted); font-size: .9rem; line-height: 1.45; margin-top: 2px; overflow-wrap: anywhere; }
+
 /* фильтр выделений по темам */
 .hl-filter { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 0 10px; border-bottom: 1px solid var(--line); }
 .reader.night .hl-filter { border-color: #2a312d; }
