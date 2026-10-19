@@ -1092,6 +1092,7 @@ route('GET', '/api/stats', (ctx) => {
        WHERE p.user_id = ? AND b.pages > 0 AND p.page >= b.pages`
     ),
     favorites: one('SELECT COUNT(*) AS c FROM favorites WHERE user_id = ?'),
+    since: db.prepare('SELECT created_at FROM users WHERE id = ?').get(ctx.user.id)?.created_at || null,
   });
 });
 

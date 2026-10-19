@@ -337,10 +337,11 @@
   /* ================= Роутинг и страницы ================= */
   const view = $('#view');
 
-  const ROUTES = ['home', 'publishers', 'catalog', 'favorites', 'offline'];
+  const ROUTES = ['home', 'publishers', 'catalog', 'favorites', 'offline', 'profile'];
   function currentRoute() {
     const h = location.hash.replace(/^#/, '');
     const r = ROUTES.includes(h) ? h : 'home';
+    if (r === 'profile' && !state.me) return 'home';
     return r === 'home' && state.me ? 'catalog' : r; // «Главная» — только окно входа для гостя
   }
 
@@ -362,7 +363,7 @@
   async function render() {
     state.route = currentRoute();
     if (state.me && off.ok && !off.scanned) { off.scanned = true; await offlineScan(); }
-    if (state.me && location.hash !== '#' + state.route && !['publishers', 'favorites', 'offline'].includes(state.route)) {
+    if (state.me && location.hash !== '#' + state.route && !['publishers', 'favorites', 'offline', 'profile'].includes(state.route)) {
       history.replaceState(null, '', '#' + state.route);
     }
     if (state.route !== 'publishers') state.publisher = '';
@@ -374,6 +375,7 @@
       else if (state.route === 'publishers') await renderPublishers();
       else if (state.route === 'catalog') await renderCatalog();
       else if (state.route === 'offline') await renderOffline();
+      else if (state.route === 'profile') await renderProfile();
       else await renderFavorites();
     } catch (e) {
       view.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
@@ -1094,28 +1096,42 @@
 
   $('#nav-profile').onclick = () => {
     if (!state.me) openAuth('login');
-    else openProfile();
+    else if (location.hash === '#profile') render();
+    else location.hash = '#profile';
   };
 
-  async function openProfile() {
-    const body = $('#profile-body');
-    body.innerHTML = '<p class="muted">Загрузка…</p>';
-    openModal('m-profile');
+  async function renderProfile() {
+    const body = view;
+    body.innerHTML = '<div class="page-head"><h1 class="page-title">Профиль</h1></div><p class="muted">Загрузка…</p>';
     let stats = { reading: 0, finished: 0, favorites: 0 };
     let items = [];
     try {
       [stats, { items }] = await Promise.all([api('GET', '/api/stats'), api('GET', '/api/progress')]);
     } catch (e) {
-      body.innerHTML = `<p class="form-error">${esc(e.message)}</p>`;
+      body.innerHTML = `<div class="page-head"><h1 class="page-title">Профиль</h1></div><p class="form-error">${esc(e.message)}</p>`;
       return;
     }
     const cont = items.map((i) => i.book).filter((b) => !isFinished(b)).slice(0, 4);
+    const since = stats.since
+      ? new Date(stats.since).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })
+      : '';
+    const hhmm = new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
     body.innerHTML = `
+      <div class="page-head"><h1 class="page-title">Профиль</h1></div>
+      <div class="profile-page">
       <div class="profile-head">
         <div class="avatar">${esc(state.me.nick[0])}</div>
         <div><b>${esc(state.me.nick)}</b>${state.me.isAdmin ? '<span class="badge">админ</span>' : ''}
+          ${since ? `<div class="muted small">С нами с ${esc(since)} г.</div>` : ''}
           <div class="muted small">Прогресс чтения хранится в аккаунте</div></div>
       </div>
+      <div class="profile-actions top">
+        <button type="button" class="btn ghost" id="p-pass">Сменить пароль</button>
+        <a class="btn ghost" href="#offline">Скачанные книги</a>
+        <a class="btn ghost" href="#favorites">Мои книги</a>
+        <button type="button" class="btn ghost" id="p-logout">Выйти</button>
+      </div>
+      <div class="sync-line">✓ Прогресс и «Хочу прочитать» синхронизированы · ${hhmm}</div>
       <div class="streak-line">${FLAME_SVG}<span>${STREAK.streak > 0
         ? `Серия чтения: <b>${STREAK.streak}</b> ${daysWord(STREAK.streak)}${STREAK.best > STREAK.streak ? ` · рекорд <b>${STREAK.best}</b>` : ''}${STREAK.today ? '' : '. Прочитайте сегодня страницу, чтобы продолжить'}`
         : 'Прочитайте сегодня хотя бы страницу — начнётся серия'}</span></div>
@@ -1130,32 +1146,27 @@
           <span class="sub">${b.pages > 0 ? `стр. ${b.progress.page} из ${b.pages}` : `стр. ${b.progress.page}`}</span></span>
         </button>`).join('')}</div>` : ''}
       <button type="button" class="btn ghost wide p-notes" id="p-notes">Мои закладки <b>${stats.bookmarks || 0}</b> и выделения <b>${stats.highlights || 0}</b></button>
-      <div class="profile-actions">
-        ${state.me.isAdmin ? '<button type="button" class="btn primary" id="p-manage">Управление библиотекой</button>' : ''}
-        <button type="button" class="btn ghost" id="p-pass">Сменить пароль</button>
-        <button type="button" class="btn ghost" id="p-logout">Выйти</button>
-      </div>
+      ${state.me.isAdmin ? '<div class="profile-actions"><button type="button" class="btn primary" id="p-manage">Управление библиотекой</button></div>' : ''}
       <form class="pw-form" id="pw-form" hidden>
         <label class="field">Текущий пароль<input name="old" type="password" autocomplete="current-password" required></label>
         <label class="field">Новый пароль (от 6 символов)<input name="new" type="password" autocomplete="new-password" minlength="6" required></label>
         <p class="form-error" id="pw-error"></p><p class="ok-msg" id="pw-ok"></p>
         <button class="btn primary" type="submit">Сохранить пароль</button>
-      </form>`;
+      </form>
+      </div>`;
 
     $$('[data-continue]', body).forEach((b) => (b.onclick = () => {
-      closeModal($('#m-profile'));
       openReader(Number(b.dataset.continue));
     }));
-    $('#p-notes').onclick = () => { closeModal($('#m-profile')); openNotes(); };
+    $('#p-notes').onclick = () => openNotes();
     const pm = $('#p-manage');
-    if (pm) pm.onclick = () => { closeModal($('#m-profile')); openManage(); };
+    if (pm) pm.onclick = () => openManage();
     $('#p-pass').onclick = () => { $('#pw-form').hidden = !$('#pw-form').hidden; };
     $('#p-logout').onclick = async () => {
       try { await api('POST', '/api/logout'); } catch { /* всё равно выходим */ }
       state.me = null;
       Object.assign(STREAK, { streak: 0, best: 0, today: false });
       try { navigator.serviceWorker?.controller?.postMessage({ type: 'clear-user' }); } catch { /* ok */ }
-      closeModal($('#m-profile'));
       toast('Вы вышли из аккаунта');
       history.replaceState(null, '', '#home');
       render();

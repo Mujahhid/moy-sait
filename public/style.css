@@ -942,3 +942,11 @@ main { max-width: var(--maxw); margin: 0 auto; padding: 0 20px calc(120px + env(
 .backup-box { margin-top: 26px; padding-top: 16px; border-top: 1px solid var(--line); }
 .backup-box .row { margin: 10px 0; }
 .form-error.ok { color: var(--green); }
+
+/* ---------- Профиль как страница ---------- */
+.profile-page { max-width: 760px; padding-bottom: 32px; }
+.profile-page .profile-head { margin-top: 4px; }
+.profile-actions.top { margin-bottom: 14px; }
+.profile-actions.top .btn { text-decoration: none; display: inline-flex; align-items: center; }
+.sync-line { margin: 0 0 18px; padding: 12px 16px; border-radius: 14px; background: var(--card); border: 1px solid var(--line); color: var(--muted); font-size: .92rem; }
+.profile-page .profile-actions { margin-bottom: 14px; }
