@@ -1158,12 +1158,12 @@
         <div class="stat"><b>${stats.finished}</b><span>прочитано</span></div>
         <div class="stat"><b>${stats.favorites}</b><span>хочу прочитать</span></div>
       </div>
+      <button type="button" class="btn ghost wide p-notes" id="p-notes">Мои закладки <b>${stats.bookmarks || 0}</b> и выделения <b>${stats.highlights || 0}</b></button>
       ${cont.length ? `<h4>Продолжить чтение</h4><div class="cont">${cont.map((b) => `
         <button type="button" class="cont-item" data-continue="${b.id}">${thumbHtml(b)}
           <span class="txt"><b dir="auto">${esc(b.title)}</b>
           <span class="sub">${b.pages > 0 ? `стр. ${b.progress.page} из ${b.pages}` : `стр. ${b.progress.page}`}</span></span>
         </button>`).join('')}</div>` : ''}
-      <button type="button" class="btn ghost wide p-notes" id="p-notes">Мои закладки <b>${stats.bookmarks || 0}</b> и выделения <b>${stats.highlights || 0}</b></button>
       ${state.me.isAdmin ? '<div class="profile-actions"><button type="button" class="btn primary" id="p-manage">Управление библиотекой</button></div>' : ''}
       <form class="pw-form" id="pw-form" hidden>
         <label class="field">Текущий пароль<input name="old" type="password" autocomplete="current-password" required></label>

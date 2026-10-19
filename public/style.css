@@ -868,7 +868,7 @@ main { max-width: var(--maxw); margin: 0 auto; padding: 0 20px calc(120px + env(
 .streak-line b { color: var(--green); }
 
 /* профиль: кнопка «Мои закладки и выделения» */
-.p-notes { margin-bottom: 14px; }
+.p-notes { margin-bottom: 18px; }
 .p-notes b { color: var(--green); }
 
 /* окно «Закладки и выделения» по всем книгам */
