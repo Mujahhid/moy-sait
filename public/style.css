@@ -140,11 +140,10 @@ button { cursor: pointer; }
 
 /* ---------- Шапка ---------- */
 .top {
-  position: sticky; top: 0; z-index: 20;
+  position: sticky; top: 0; z-index: 24;
   display: flex; align-items: center; justify-content: space-between; gap: 16px;
   padding: 12px max(20px, env(safe-area-inset-right), calc((100% - var(--maxw)) / 2 + 20px)) 12px max(20px, env(safe-area-inset-left), calc((100% - var(--maxw)) / 2 + 20px));
-  background: color-mix(in srgb, var(--paper) 88%, transparent);
-  backdrop-filter: blur(10px);
+  background: var(--paper);  /* непрозрачная: под шапкой не должен просвечивать контент страницы */
   border-bottom: 1px solid var(--line);
 }
 .brand { display: flex; flex-direction: column; text-decoration: none; line-height: 1.1; }
