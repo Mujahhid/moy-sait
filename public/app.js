@@ -881,8 +881,26 @@
         }</div>`;
   }
 
+  // строка книги в «Мои книги»: обложка, название, автор, прогресс и круглая кнопка «читать»
+  function rowHtml(b) {
+    const sub = [b.author, b.pages ? `${b.pages} стр.` : ''].filter(Boolean).join(' · ');
+    return `<article class="book-row">
+      <button type="button" class="row-cover" data-open="${b.id}" aria-label="Читать: ${esc(b.title)}">${thumbHtml(b)}</button>
+      <div class="row-txt" data-open="${b.id}">
+        <h3 dir="auto">${esc(b.title)}</h3>
+        ${sub ? `<p class="row-sub" dir="auto">${esc(sub)}</p>` : ''}
+        ${progressHtml(b)}
+      </div>
+      <button type="button" class="fav-mini ${b.favorite ? 'on' : ''}" data-fav="${b.id}" aria-pressed="${!!b.favorite}"
+        aria-label="${b.favorite ? 'Убрать из «Хочу прочитать»' : 'Хочу прочитать'}">${b.favorite ? '♥' : '♡'}</button>
+      <button type="button" class="row-go" data-open="${b.id}" aria-label="Читать: ${esc(b.title)}">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l11-6.5z"/></svg>
+      </button>
+    </article>`;
+  }
+
   // «Мои книги»: «Хочу прочитать» (то, что добавлено кнопкой ♡), «Читаю» и «Прочитано»
-  const MYBOOKS = { tab: 'want' };
+  const MYBOOKS = { tab: 'reading' };
   async function renderFavorites() {
     if (!state.me) {
       view.innerHTML = `<div class="page-head"><h1 class="page-title">Мои книги</h1></div>
@@ -894,23 +912,23 @@
     const [fav, prog] = await Promise.all([api('GET', '/api/favorites'), api('GET', '/api/progress')]);
     const all = prog.items.map((i) => i.book);
     const lists = {
-      want: fav.books,
       reading: all.filter((b) => !isFinished(b)),
+      want: fav.books,
       done: all.filter(isFinished),
     };
-    const labels = { want: 'Хочу прочитать', reading: 'Читаю', done: 'Прочитано' };
+    const labels = { reading: 'Читаю', want: 'Хочу прочитать', done: 'Прочитано' };
     const empty = {
       want: 'В списке «Хочу прочитать» пока пусто. Нажмите ♡ на обложке книги в библиотеке — она появится здесь.',
       reading: 'Вы пока ничего не читаете. Откройте любую книгу — она появится здесь.',
       done: 'Прочитанных книг пока нет.',
     };
-    const tab = lists[MYBOOKS.tab] ? MYBOOKS.tab : 'want';
+    const tab = lists[MYBOOKS.tab] ? MYBOOKS.tab : 'reading';
     const books = lists[tab];
     view.innerHTML = `<div class="page-head"><h1 class="page-title">Мои книги</h1></div>
       <div class="tabs mybooks-tabs" role="tablist">${Object.keys(labels).map((id) => `
-        <button type="button" role="tab" class="tab ${id === tab ? 'active' : ''}" aria-selected="${id === tab}" data-mytab="${id}">${labels[id]} <span class="n">${lists[id].length}</span></button>`).join('')}</div>
+        <button type="button" role="tab" class="tab ${id === tab ? 'active' : ''}" aria-selected="${id === tab}" data-mytab="${id}">${labels[id]} · ${lists[id].length}</button>`).join('')}</div>
       ${books.length
-        ? `${spinesBlock(books)}<div class="grid" id="fav-grid">${books.map(cardHtml).join('')}</div>`
+        ? `<div class="book-rows" id="fav-grid">${books.map(rowHtml).join('')}</div>`
         : `<div class="empty">${empty[tab]}<br>
            <a class="btn ghost" href="#catalog">Перейти в библиотеку</a></div>`}`;
     $$('[data-mytab]', view).forEach((t) => (t.onclick = () => { MYBOOKS.tab = t.dataset.mytab; renderFavorites(); }));
