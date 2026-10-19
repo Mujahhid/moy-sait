@@ -1156,7 +1156,19 @@
   const HL_NAMES = { yellow: 'Жёлтый', green: 'Зелёный', blue: 'Синий', pink: 'Розовый' };
   const SAVED_MSG = 'Книга сохранена на устройстве и откроется без интернета';
   const BM_SVG = '<svg viewBox="0 0 24 32" aria-hidden="true"><path d="M3 1.5h18v28L12 23 3 29.5z"/></svg>';
-  const emptyAnn = () => ({ bookmarks: [], highlights: [], updatedAt: 0, dirty: false, rev: 0 });
+  const TOPIC_MAX = 40;
+  const emptyAnn = () => ({ bookmarks: [], highlights: [], topics: {}, legendDone: false, updatedAt: 0, dirty: false, rev: 0 });
+  // темы выделений: название для каждого цвета (хранится вместе с выделениями книги)
+  const cleanTopics = (t) => {
+    const o = {};
+    if (t && typeof t === 'object') {
+      for (const c of HL_COLORS) {
+        const v = typeof t[c] === 'string' ? t[c].replace(/\s+/g, ' ').trim().slice(0, TOPIC_MAX) : '';
+        if (v) o[c] = v;
+      }
+    }
+    return o;
+  };
 
   const R = {
     doc: null, lib: null, loading: null, session: 0, book: null, total: 0,
@@ -1168,7 +1180,7 @@
     pgsEl: null, pgL: null, pgR: null,
     saveTimer: null, dirty: false,
     night: lsGet('reader_night') === '1',
-    ann: emptyAnn(), annTimer: null,
+    ann: emptyAnn(), annTimer: null, annReady: false, legendForce: false,
     popSel: null, popHl: null, pointerDown: false,
   };
   const reader = $('#reader');
@@ -1177,6 +1189,8 @@
   const pageInput = $('#r-page');
   const pop = $('#r-pop');
   const panel = $('#r-panel');
+  const legend = $('#r-legend');
+  let legendOn = false;
   const reducedMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   // pdf.js (≈500 КБ) подгружается только когда нужна читалка или загрузка PDF, а не на каждой странице
@@ -1235,6 +1249,9 @@
     closePanel();
     hidePop();
     R.ann = emptyAnn();
+    R.annReady = false;
+    R.legendForce = false;
+    syncLegend();
     setNight(R.night);
     $('#r-title').textContent = book.title;
     $('#r-title').dir = 'auto';
@@ -1305,6 +1322,9 @@
     R.book = null;
     R.flipping = false;
     R.pending = null;
+    R.annReady = false;
+    R.legendForce = false;
+    syncLegend();
     hidePop();
     closePanel();
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
@@ -1583,6 +1603,7 @@
     $('#r-bm').setAttribute('aria-pressed', String(marked));
     $('#pn-bm').textContent = R.ann.bookmarks.length;
     $('#pn-hl').textContent = R.ann.highlights.length;
+    syncLegend();
     updateSaveBtn();
   }
 
@@ -1641,7 +1662,7 @@
   /* ---------- Закладки и выделения (хранятся в аккаунте + копия на устройстве) ---------- */
   const annKey = (bookId) => `ann_${state.me?.id ?? 'x'}_${bookId}`;
   function annStore(bookId, a) {
-    lsSet(annKey(bookId), JSON.stringify({ bookmarks: a.bookmarks, highlights: a.highlights, updatedAt: a.updatedAt, dirty: a.dirty }));
+    lsSet(annKey(bookId), JSON.stringify({ bookmarks: a.bookmarks, highlights: a.highlights, topics: a.topics, legendDone: a.legendDone, updatedAt: a.updatedAt, dirty: a.dirty }));
   }
 
   function annTouch() {
@@ -1664,7 +1685,7 @@
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
-        body: JSON.stringify({ bookmarks: a.bookmarks, highlights: a.highlights }),
+        body: JSON.stringify({ bookmarks: a.bookmarks, highlights: a.highlights, topics: a.topics, legendDone: a.legendDone }),
         keepalive,
       });
       if (!res.ok) throw new Error('save');
@@ -1681,21 +1702,69 @@
     R.ann = {
       bookmarks: Array.isArray(local?.bookmarks) ? local.bookmarks : [],
       highlights: Array.isArray(local?.highlights) ? local.highlights : [],
+      topics: cleanTopics(local?.topics),
+      legendDone: !!local?.legendDone,
       updatedAt: local?.updatedAt || 0,
       dirty: !!local?.dirty,
       rev: 0,
     };
+    R.annReady = !state.me; // с аккаунтом ждём ответа сервера, чтобы плашка не мигала зря
     paintAll();
     if (!state.me) return;
     try {
       const srv = await api('GET', `/api/annotations/${id}`);
       if (session !== R.session) return;
       if (R.ann.dirty) { annPush(); return; } // на устройстве есть несохранённые правки — они главнее
-      R.ann = { bookmarks: srv.bookmarks || [], highlights: srv.highlights || [], updatedAt: srv.updatedAt || 0, dirty: false, rev: 0 };
+      R.ann = {
+        bookmarks: srv.bookmarks || [], highlights: srv.highlights || [],
+        topics: cleanTopics(srv.topics), legendDone: !!srv.legendDone,
+        updatedAt: srv.updatedAt || 0, dirty: false, rev: 0,
+      };
       annStore(id, R.ann);
       paintAll();
-    } catch { /* офлайн — работаем с копией на устройстве */ }
+    } catch { /* офлайн — работаем с копией на устройстве */ } finally {
+      if (session === R.session) { R.annReady = true; syncLegend(); }
+    }
   }
+
+  /* ---------- Темы выделений: плашка в начале книги ---------- */
+  const topicName = (c) => R.ann.topics?.[c] || '';
+  const colorLabel = (c) => topicName(c) || HL_NAMES[c];
+
+  function renderLegend() {
+    $('#lg-rows').innerHTML = HL_COLORS.map((c) =>
+      `<label class="lg-row"><i class="tdot c-${c}"></i>
+        <input type="text" data-topic="${c}" maxlength="${TOPIC_MAX}" dir="auto" autocomplete="off"
+          value="${esc(topicName(c))}" placeholder="${esc(HL_NAMES[c])}" aria-label="Тема для цвета: ${esc(HL_NAMES[c])}"></label>`).join('');
+  }
+
+  // плашка видна на первой странице книги, пока не нажали «Готово»; из панели её можно открыть на любой странице
+  function syncLegend() {
+    const want = !!R.doc && !!R.pgsEl && !!R.book && R.annReady && (R.legendForce || (!R.ann.legendDone && firstVisible() === 1));
+    if (want) legend.style.top = `${($('.reader-bar', reader)?.offsetHeight || 0) + 10}px`;
+    if (want === legendOn) return;
+    legendOn = want;
+    legend.hidden = !want;
+    if (want) renderLegend();
+  }
+
+  function closeLegend() {
+    R.legendForce = false;
+    if (!R.ann.legendDone) { R.ann.legendDone = true; annTouch(); }
+    syncLegend();
+  }
+
+  legend.addEventListener('input', (e) => {
+    const inp = e.target.closest('[data-topic]');
+    if (!inp) return;
+    const v = inp.value.replace(/\s+/g, ' ').trim().slice(0, TOPIC_MAX);
+    if (v) R.ann.topics[inp.dataset.topic] = v;
+    else delete R.ann.topics[inp.dataset.topic];
+    annTouch();
+    renderPanel();
+  });
+  legend.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.matches('input')) { e.preventDefault(); e.target.blur(); } });
+  $('#lg-ok').onclick = closeLegend;
 
   function paintPg(pg) {
     const n = Number(pg?.dataset.page);
@@ -1773,8 +1842,11 @@
   }
 
   /* меню над выделенным текстом */
-  const swatches = (active) => HL_COLORS.map((c) =>
-    `<button type="button" class="sw ${c === active ? 'on' : ''}" data-c="${c}" title="${HL_NAMES[c]}" aria-label="${HL_NAMES[c]} цвет"></button>`).join('');
+  // цвет с названием темы показываем «таблеткой» с подписью, без названия — просто кружком
+  const swatches = (active) => HL_COLORS.map((c) => {
+    const name = topicName(c);
+    return `<button type="button" class="sw ${name ? 'tp' : ''} ${c === active ? 'on' : ''}" data-c="${c}" title="${esc(colorLabel(c))}" aria-label="${esc(colorLabel(c))}"><i></i>${name ? `<span>${esc(name)}</span>` : ''}</button>`;
+  }).join('');
 
   function placePop(rect, preferBelow) {
     pop.hidden = false;
@@ -1920,6 +1992,7 @@
 
   /* панель «Закладки и выделения» */
   let panelTab = 'bookmarks';
+  let hlFilter = ''; // показывать выделения только одного цвета (темы)
   function openPanel(tab) {
     if (tab) panelTab = tab;
     panel.hidden = false;
@@ -1948,16 +2021,34 @@
             <button type="button" class="rm" data-rm-bm="${esc(b.id)}" aria-label="Удалить закладку" title="Удалить">✕</button></div>`).join('')
           : '<div class="r-empty">Закладок пока нет.<br>Нажмите на ленточку в углу страницы или на кнопку выше.</div>');
     } else {
-      const list = [...R.ann.highlights].sort((a, b) => a.page - b.page || a.createdAt - b.createdAt);
-      body.innerHTML = list.length ? list.map((h) => `<div class="r-item" data-go="${h.page}"><i class="bar c-${esc(h.color)}"></i>
-          <div class="tx"><b>Страница ${h.page}</b><span dir="auto">${esc(h.text.length > 180 ? `${h.text.slice(0, 180)}…` : h.text)}</span></div>
+      const all = R.ann.highlights;
+      const cnt = (c) => all.filter((h) => h.color === c).length;
+      if (hlFilter && !cnt(hlFilter) && !topicName(hlFilter)) hlFilter = '';
+      const chips = `<div class="hl-filter">
+          <button type="button" class="chip ${hlFilter ? '' : 'on'}" data-hf="">Все <span>${all.length}</span></button>
+          ${HL_COLORS.filter((c) => cnt(c) || topicName(c)).map((c) =>
+            `<button type="button" class="chip ${hlFilter === c ? 'on' : ''}" data-hf="${c}"><i class="tdot c-${c}"></i>${esc(colorLabel(c))} <span>${cnt(c)}</span></button>`).join('')}
+          <button type="button" class="chip edit" data-topics-edit>✎ Темы</button></div>`;
+      const list = all.filter((h) => !hlFilter || h.color === hlFilter).sort((a, b) => a.page - b.page || a.createdAt - b.createdAt);
+      body.innerHTML = chips + (list.length ? list.map((h) => `<div class="r-item" data-go="${h.page}"><i class="bar c-${esc(h.color)}"></i>
+          <div class="tx"><b>Страница ${h.page}${topicName(h.color) ? ` · ${esc(topicName(h.color))}` : ''}</b><span dir="auto">${esc(h.text.length > 180 ? `${h.text.slice(0, 180)}…` : h.text)}</span></div>
           <button type="button" class="rm" data-rm-hl="${esc(h.id)}" aria-label="Удалить выделение" title="Удалить">✕</button></div>`).join('')
-        : '<div class="r-empty">Выделений пока нет.<br>Выделите текст на странице — появится меню с цветами.</div>';
+        : all.length ? '<div class="r-empty">В этой теме выделений пока нет.</div>'
+        : '<div class="r-empty">Выделений пока нет.<br>Выделите текст на странице — появится меню с цветами.</div>');
     }
   }
   panel.addEventListener('click', (e) => {
     const t = e.target.closest('[data-ptab]');
     if (t) { panelTab = t.dataset.ptab; renderPanel(); return; }
+    const hf = e.target.closest('[data-hf]');
+    if (hf) { hlFilter = hf.dataset.hf; renderPanel(); return; }
+    if (e.target.closest('[data-topics-edit]')) {
+      R.legendForce = true;
+      syncLegend();
+      if (window.innerWidth < 700) closePanel();
+      legend.querySelector('input')?.focus({ preventScroll: true });
+      return;
+    }
     const addBm = e.target.closest('[data-pbm]');
     if (addBm) { toggleBookmark(Number(addBm.dataset.pbm)); return; }
     const rmBm = e.target.closest('[data-rm-bm]');
@@ -1975,6 +2066,7 @@
   // Esc сначала закрывает меню или панель, и только потом читалку
   function readerEscape() {
     if (!pop.hidden) { hidePop(); return true; }
+    if (legendOn) { closeLegend(); return true; }
     if (!panel.hidden) { closePanel(); return true; }
     if (R.pseudoFull) { R.pseudoFull = false; applyFull(); return true; }
     return false;
