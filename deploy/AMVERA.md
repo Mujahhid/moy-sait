@@ -11,7 +11,7 @@ Amvera — российская платформа, похожая на Railway:
 ## 1. Резервная копия со старого сайта
 
 Войдите админом на Railway → «Профиль» → «Управление библиотекой» → внизу **«Скачать копию»**.
-Получите файл `kutubul-backup-….tar` (база, все книги и обложки).
+Получите файл `maktabatul-backup-….tar` (база, все книги и обложки).
 
 ## 2. Проект в Amvera
 
@@ -31,8 +31,8 @@ Amvera — российская платформа, похожая на Railway:
 **Через Git** (на компьютере, где установлен git). Точный адрес репозитория покажет Amvera на странице проекта:
 
 ```bash
-git clone https://github.com/Mujahhid/kutubul-ulum2.git
-cd kutubul-ulum2
+git clone https://github.com/Mujahhid/maktabatul-ulum.git
+cd maktabatul-ulum
 git remote add amvera <АДРЕС_ИЗ_AMVERA>
 git push amvera main:master
 ```

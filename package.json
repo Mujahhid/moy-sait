@@ -1,5 +1,5 @@
 {
-  "name": "kutubul-ulum",
+  "name": "maktabatul-ulum",
   "version": "1.0.0",
   "description": "Тихая библиотека: чтение PDF-книг в браузере, аккаунты, избранное, сохранение прогресса, управление каталогом.",
   "type": "module",

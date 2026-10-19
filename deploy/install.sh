@@ -5,7 +5,7 @@
 #   С доменом (HTTPS автоматически): bash install.sh library.example.ru
 #
 # Переменные (необязательно):
-#   REPO=https://github.com/Mujahhid/kutubul-ulum2.git   откуда брать код
+#   REPO=https://github.com/Mujahhid/maktabatul-ulum.git   откуда брать код
 #   GH_TOKEN=github_pat_...                              токен только для чтения, если репозиторий приватный
 #   MAX_PDF_MB=500                                       максимальный размер одной книги
 #
@@ -13,7 +13,7 @@
 set -euo pipefail
 
 DOMAIN="${1:-}"
-REPO="${REPO:-https://github.com/Mujahhid/kutubul-ulum2.git}"
+REPO="${REPO:-https://github.com/Mujahhid/maktabatul-ulum.git}"
 APP_DIR=/opt/kutubul
 DATA_DIR=/var/lib/kutubul
 ENV_FILE=/etc/kutubul.env
@@ -86,7 +86,7 @@ fi
 say "Служба systemd"
 cat > /etc/systemd/system/kutubul.service <<UNITEOF
 [Unit]
-Description=Kutubul ulum library
+Description=maktabatul-ulum library
 After=network-online.target
 Wants=network-online.target
 

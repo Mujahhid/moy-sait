@@ -57,7 +57,7 @@ export async function writeBackup({ db, dataDir, uploadDir, res }) {
     res.writeHead(200, {
       'Content-Type': 'application/x-tar',
       'Content-Length': total,
-      'Content-Disposition': `attachment; filename="kutubul-backup-${stamp}.tar"`,
+      'Content-Disposition': `attachment; filename="maktabatul-backup-${stamp}.tar"`,
       'Cache-Control': 'no-store',
     });
     const send = async (buf) => { if (!res.write(buf)) await once(res, 'drain'); };

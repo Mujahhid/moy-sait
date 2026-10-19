@@ -16,7 +16,7 @@
 ## 1. Резервная копия со старого сайта (Railway)
 
 1. Дождитесь, пока Railway задеплоит последнюю версию, и войдите админом.
-2. «Профиль» → «Управление библиотекой» → внизу **«Скачать копию»**. Получите файл `kutubul-backup-ГГГГ-ММ-ДД.tar`.
+2. «Профиль» → «Управление библиотекой» → внизу **«Скачать копию»**. Получите файл `maktabatul-backup-ГГГГ-ММ-ДД.tar`.
    Это одна архивная копия всего: база и все PDF с обложками.
 
 ## 2. Установка на сервер
@@ -26,11 +26,11 @@
 
 ```bash
 apt-get update && apt-get install -y git
-git clone https://x-access-token:ВАШ_ТОКЕН@github.com/Mujahhid/kutubul-ulum2.git /opt/kutubul
+git clone https://x-access-token:ВАШ_ТОКЕН@github.com/Mujahhid/maktabatul-ulum.git /opt/kutubul
 bash /opt/kutubul/deploy/install.sh library.example.ru
 ```
 
-- Репозиторий публичный — в `git clone` просто `https://github.com/Mujahhid/kutubul-ulum2.git` без токена.
+- Репозиторий публичный — в `git clone` просто `https://github.com/Mujahhid/maktabatul-ulum.git` без токена.
 - Нет домена — запускайте `bash /opt/kutubul/deploy/install.sh` без аргумента: сайт откроется по `http://IP`.
 - Скрипт ставит Node.js 22, веб-сервер Caddy (сам получает HTTPS-сертификат), создаёт службу `kutubul` с автозапуском.
   Его можно запускать повторно — данные и настройки не затираются.
