@@ -157,7 +157,7 @@ button { cursor: pointer; }
 .nav a:hover, .nav button:hover { color: var(--ink); background: var(--paper-2); }
 .nav .active { color: var(--green); background: var(--paper-2); }
 
-main { max-width: var(--maxw); margin: 0 auto; padding: 0 20px calc(120px + env(safe-area-inset-bottom)); outline: none; }
+main { position: relative; z-index: 0; isolation: isolate; max-width: var(--maxw); margin: 0 auto; padding: 0 20px calc(120px + env(safe-area-inset-bottom)); outline: none; }  /* содержимое страницы всегда под шапкой и панелью вкладок */
 
 /* ---------- Кнопки и поля ---------- */
 .btn {
