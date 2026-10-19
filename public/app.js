@@ -450,7 +450,7 @@
     view.innerHTML = `
       <section class="hero">
         ${ORNAMENT}
-        <h1 class="hero-name">maktabatul-ulum</h1>
+        <h1 lang="ar" dir="rtl">مَكْتَبَةُ الْعُلُوم</h1>
         <p class="lead">Тихая библиотека на русском, арабском и английском. Читайте не спеша.</p>
         <button type="button" class="btn primary" id="cta">${cta}</button>
       </section>
