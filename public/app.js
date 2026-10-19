@@ -35,13 +35,13 @@
   };
 
   let toastTimer;
-  function toast(msg, isErr = false) {
+  function toast(msg, isErr = false, ms = 0) {
     const t = $('#toast');
     t.textContent = msg;
     t.classList.toggle('err', isErr);
     t.classList.add('show');
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => t.classList.remove('show'), isErr ? 4500 : 2600);
+    toastTimer = setTimeout(() => t.classList.remove('show'), ms || (isErr ? 4500 : 2600));
   }
 
   async function api(method, url, body) {
@@ -356,6 +356,7 @@
     $('#tab-register').hidden = !state.registration;
     $('#nav-offline').hidden = !state.me;
     $('#nav-offline').classList.toggle('active', state.route === 'offline');
+    paintStreak();
   }
 
   async function render() {
@@ -1013,6 +1014,7 @@
         password: form.password.value,
       });
       state.me = user;
+      syncStreak();
       form.reset();
       closeModal($('#m-auth'));
       toast(authMode === 'login' ? `С возвращением, ${user.nick}!` : `Добро пожаловать, ${user.nick}!`);
@@ -1095,6 +1097,9 @@
         <div><b>${esc(state.me.nick)}</b>${state.me.isAdmin ? '<span class="badge">админ</span>' : ''}
           <div class="muted small">Прогресс чтения хранится в аккаунте</div></div>
       </div>
+      <div class="streak-line">${FLAME_SVG}<span>${STREAK.streak > 0
+        ? `Серия чтения: <b>${STREAK.streak}</b> ${daysWord(STREAK.streak)}${STREAK.best > STREAK.streak ? ` · рекорд <b>${STREAK.best}</b>` : ''}${STREAK.today ? '' : '. Прочитайте сегодня страницу, чтобы продолжить'}`
+        : 'Прочитайте сегодня хотя бы страницу — начнётся серия'}</span></div>
       <div class="stats">
         <div class="stat"><b>${stats.reading}</b><span>читаю</span></div>
         <div class="stat"><b>${stats.finished}</b><span>прочитано</span></div>
@@ -1129,6 +1134,7 @@
     $('#p-logout').onclick = async () => {
       try { await api('POST', '/api/logout'); } catch { /* всё равно выходим */ }
       state.me = null;
+      Object.assign(STREAK, { streak: 0, best: 0, today: false });
       try { navigator.serviceWorker?.controller?.postMessage({ type: 'clear-user' }); } catch { /* ok */ }
       closeModal($('#m-profile'));
       toast('Вы вышли из аккаунта');
@@ -1149,6 +1155,61 @@
       }
     });
   }
+
+  /* ================= Серия чтения («огонёк») ================= */
+  // День засчитывается, когда человек прочитал хотя бы страницу (не просто зашёл на сайт).
+  // Огонёк появляется со 2-го дня подряд и становится крупнее каждые 30 дней.
+  const FLAME_FROM = 2;
+  const STREAK_STEP = 30;
+  const FLAME_MAX_LEVEL = 5;
+  const FLAME_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path class="fo" d="M12 2s1.2 3.6-1.2 6.4C8.7 10.9 6 12.9 6 16.2 6 19.4 8.7 22 12 22s6-2.6 6-5.8c0-2.7-1.5-4.4-2.7-5.9-.4 1.2-1.1 2-2 2.4C13.9 9.4 13.4 5 12 2z"/><path class="fi" d="M12 22c-1.9 0-3.3-1.4-3.3-3.2 0-2 1.5-3 2.4-4.2.4 1 1 1.6 1.7 1.9.5-.8.7-1.5.7-2.2 1.3 1.1 1.8 2.5 1.8 4.4 0 1.8-1.4 3.3-3.3 3.3z"/></svg>';
+  const STREAK = { streak: 0, best: 0, today: false, busy: false };
+  const daysWord = (n) => (n % 10 === 1 && n % 100 !== 11 ? 'день' : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? 'дня' : 'дней');
+  const dayKey = () => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  };
+
+  function paintStreak() {
+    const btn = $('#nav-streak');
+    const n = STREAK.streak;
+    const show = !!state.me && n >= FLAME_FROM;
+    btn.hidden = !show;
+    if (!show) return;
+    btn.dataset.lv = Math.min(FLAME_MAX_LEVEL, Math.floor(n / STREAK_STEP));
+    btn.classList.toggle('dim', !STREAK.today);
+    btn.innerHTML = `${FLAME_SVG}<b>${n}</b>`;
+    btn.setAttribute('aria-label', `Серия чтения: ${n} ${daysWord(n)}`);
+  }
+
+  // read=false — только узнать серию; read=true — засчитать сегодняшний день
+  async function syncStreak(read = false) {
+    if (!state.me) return null;
+    try {
+      const s = await api('POST', '/api/streak', { day: dayKey(), read });
+      Object.assign(STREAK, s);
+      paintStreak();
+      return s;
+    } catch { return null; /* без связи серия обновится в следующий раз */ }
+  }
+
+  async function recordReading() {
+    if (!state.me || reader.hidden || STREAK.today || STREAK.busy) return;
+    STREAK.busy = true;
+    const s = await syncStreak(true);
+    STREAK.busy = false;
+    if (!s?.today) return;
+    if (s.streak % STREAK_STEP === 0 && s.streak > 0) toast(`🔥 ${s.streak} ${daysWord(s.streak)} подряд! Огонёк стал больше`, false, 4500);
+    else if (s.streak >= FLAME_FROM) toast(`🔥 Серия чтения: ${s.streak} ${daysWord(s.streak)}`);
+    else toast('Серия началась — прочитайте страницу и завтра');
+  }
+
+  $('#nav-streak').onclick = () => {
+    const n = STREAK.streak;
+    const left = STREAK_STEP - (n % STREAK_STEP);
+    toast(`🔥 Серия чтения: ${n} ${daysWord(n)} подряд. Рекорд: ${STREAK.best}. До роста огонька: ${left} ${daysWord(left)}.`
+      + (STREAK.today ? '' : ' Прочитайте сегодня хотя бы страницу, чтобы не потерять серию.'), false, 5500);
+  };
 
   /* ================= Закладки и выделения по всем книгам ================= */
   const NOTES = { tab: 'highlights', books: [] };
@@ -1370,6 +1431,8 @@
       $('#r-total').textContent = `/ ${R.total}`;
       await show(R.page, { save: false });
       if (session !== R.session) return;
+      clearTimeout(R.readTimer);
+      R.readTimer = setTimeout(recordReading, 15000); // страница открыта 15 секунд — тоже чтение
       annOpen(book);
       if (state.me && off.ok && getSet('open', true) && netAllowed() && navigator.onLine && !isOffline(book)) setTimeout(() => downloadBook(book), 1500);
       if (state.me && !book.progress && session === R.session) { R.dirty = true; flushProgress(); } // книга сразу попадает в «Продолжить чтение»
@@ -1395,6 +1458,7 @@
     if (reader.hidden) return;
     flushProgress();
     annPush(true);
+    clearTimeout(R.readTimer);
     R.nav++;
     R.session++;
     resetPageCache();
@@ -1711,6 +1775,7 @@
   function scheduleSave() {
     if (!R.book) return;
     lsSet(`kp_${R.book.id}`, String(lastVisible()));
+    recordReading(); // перелистнул страницу — значит, читает
     R.dirty = true;
     clearTimeout(R.saveTimer);
     R.saveTimer = setTimeout(flushProgress, 700);
@@ -2534,6 +2599,7 @@
       state.me = null;
     }
     await render();
+    syncStreak();
     if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
     (window.requestIdleCallback || ((f) => setTimeout(f, 3000)))(autoDownloadNew);
   })();

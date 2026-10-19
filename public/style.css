@@ -848,6 +848,24 @@ main { max-width: var(--maxw); margin: 0 auto; padding: 0 20px calc(120px + env(
 .tdot.c-yellow { background: #ffd500; } .tdot.c-green { background: #5ac85a; }
 .tdot.c-blue { background: #46a0ff; } .tdot.c-pink { background: #ff69a0; }
 
+/* серия чтения: огонёк в шапке, крупнее каждые 30 дней */
+.streak-btn { display: inline-flex; align-items: center; gap: 3px; height: 42px; padding: 0 9px 0 6px; border: 0; border-radius: 999px; background: transparent; color: var(--ink); font: 700 .95rem var(--font-body); cursor: pointer; flex: none; }
+.streak-btn[hidden] { display: none; }
+.streak-btn:hover { background: var(--paper-2); }
+.streak-btn svg { flex: none; width: 24px; height: 24px; transform-origin: 50% 100%; filter: drop-shadow(0 0 3px rgba(255, 140, 30, .5)); animation: flame 1.5s ease-in-out infinite alternate; transition: width .3s, height .3s; }
+.streak-btn[data-lv="1"] svg { width: 30px; height: 30px; filter: drop-shadow(0 0 4px rgba(255, 140, 30, .6)); }
+.streak-btn[data-lv="2"] svg { width: 36px; height: 36px; filter: drop-shadow(0 0 5px rgba(255, 140, 30, .65)); }
+.streak-btn[data-lv="3"] svg { width: 42px; height: 42px; filter: drop-shadow(0 0 6px rgba(255, 140, 30, .7)); }
+.streak-btn[data-lv="4"] svg { width: 48px; height: 48px; filter: drop-shadow(0 0 7px rgba(255, 140, 30, .75)); }
+.streak-btn[data-lv="5"] svg { width: 54px; height: 54px; filter: drop-shadow(0 0 8px rgba(255, 140, 30, .8)); }
+.streak-btn.dim svg { filter: grayscale(1) opacity(.55); animation: none; } /* сегодня ещё не читал: огонёк «спит» */
+.fo { fill: #ff7a1a; } .fi { fill: #ffd34d; }
+@keyframes flame { from { transform: scale(1) rotate(-2deg); } to { transform: scale(1.06, 1.1) rotate(2deg); } }
+@media (prefers-reduced-motion: reduce) { .streak-btn svg { animation: none; } }
+.streak-line { display: flex; align-items: center; gap: 8px; margin: -6px 0 16px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); font-size: .92rem; }
+.streak-line svg { flex: none; width: 22px; height: 22px; }
+.streak-line b { color: var(--green); }
+
 /* профиль: кнопка «Мои закладки и выделения» */
 .p-notes { margin-bottom: 14px; }
 .p-notes b { color: var(--green); }
