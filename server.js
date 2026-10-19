@@ -86,6 +86,14 @@ db.exec(`
   );
 `);
 
+// серия чтения («огонёк»): добавляем колонки в уже существующую базу
+{
+  const cols = db.prepare('PRAGMA table_info(users)').all().map((c) => c.name);
+  if (!cols.includes('streak')) db.exec('ALTER TABLE users ADD COLUMN streak INTEGER NOT NULL DEFAULT 0');
+  if (!cols.includes('best_streak')) db.exec('ALTER TABLE users ADD COLUMN best_streak INTEGER NOT NULL DEFAULT 0');
+  if (!cols.includes('last_read_day')) db.exec("ALTER TABLE users ADD COLUMN last_read_day TEXT NOT NULL DEFAULT ''");
+}
+
 const now = () => Date.now();
 const LANGS = ['ru', 'ar', 'en'];
 const cleanSessions = () => db.prepare('DELETE FROM sessions WHERE expires_at < ?').run(now());
@@ -917,6 +925,38 @@ route('DELETE', '/api/progress/:id', (ctx) => {
   requireUser(ctx);
   db.prepare('DELETE FROM progress WHERE user_id = ? AND book_id = ?').run(ctx.user.id, Number(ctx.params.id));
   sendJson(ctx.res, 200, { ok: true });
+});
+
+// --- Серия чтения («огонёк»). День засчитывается, только когда человек прочитал хотя бы страницу.
+// Дату присылает устройство (его местный день); принимаем только «сегодня» с запасом на часовые пояса.
+const DAY_MS = 86400000;
+const dayNum = (s) => {
+  const [y, m, d] = s.split('-').map(Number);
+  return Math.round(Date.UTC(y, m - 1, d) / DAY_MS);
+};
+
+route('POST', '/api/streak', async (ctx) => {
+  requireUser(ctx);
+  const body = await readJson(ctx.req);
+  const day = String(body.day || '');
+  const n = /^\d{4}-\d{2}-\d{2}$/.test(day) ? dayNum(day) : NaN;
+  if (!Number.isFinite(n) || new Date(n * DAY_MS).toISOString().slice(0, 10) !== day || Math.abs(n - Math.floor(now() / DAY_MS)) > 1) {
+    throw new HttpError(400, 'Некорректная дата');
+  }
+  const u = db.prepare('SELECT streak, best_streak, last_read_day FROM users WHERE id = ?').get(ctx.user.id);
+  let streak = u.streak;
+  let best = u.best_streak;
+  let last = u.last_read_day;
+  const lastN = last ? dayNum(last) : -1e9;
+  if (body.read === true && n > lastN) {
+    streak = n - lastN === 1 ? streak + 1 : 1; // вчера читал — серия продолжается, иначе начинается заново
+    best = Math.max(best, streak);
+    last = day;
+    db.prepare('UPDATE users SET streak = ?, best_streak = ?, last_read_day = ? WHERE id = ?').run(streak, best, last, ctx.user.id);
+  }
+  const lastNow = last ? dayNum(last) : -1e9;
+  const alive = n - lastNow <= 1; // читал сегодня или вчера — серия ещё жива
+  sendJson(ctx.res, 200, { streak: alive ? streak : 0, best, today: lastNow === n });
 });
 
 // --- Закладки и выделения (один документ на пользователя и книгу)
