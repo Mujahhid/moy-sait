@@ -624,6 +624,7 @@
     almidad: 'al-midad', darujour: 'dar-ujour', alimtisal: 'al-imtisal',
     maktabazalzalya: 'maktaba-zalzalya', maktabatuzalzalya: 'maktaba-zalzalya', zalzalya: 'maktaba-zalzalya',
     asaribnabbas: 'asar-ibn-abbas',
+    rayhan: 'rayhan', райхан: 'rayhan',
   };
   const pubLogo = (name) => PUB_LOGOS[String(name).toLowerCase().replace(/[^a-zа-яё0-9]/g, '')];
   const pubIcon = (name) => {
