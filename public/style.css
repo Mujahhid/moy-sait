@@ -980,3 +980,45 @@ main { position: relative; z-index: 0; isolation: isolate; max-width: var(--maxw
   .fav-mini { width: 32px; height: 32px; }
   .row-go { width: 42px; height: 42px; }
 }
+
+/* ---------- Пользователи (для администратора) ---------- */
+.stats.four { grid-template-columns: repeat(4, 1fr); max-width: 760px; margin-bottom: 8px; }
+.u-week { margin: 0 0 16px; }
+.u-week b { color: var(--green); }
+.u-tools { display: flex; gap: 10px; align-items: center; max-width: 760px; margin-bottom: 14px; }
+.u-tools input { flex: 1; min-width: 0; }
+.u-list-wrap { display: flex; flex-direction: column; gap: 10px; max-width: 760px; }
+.u-card { border: 1px solid var(--line); border-radius: 18px; background: var(--card); }
+.u-card[open] { border-color: var(--green); }
+.u-card summary { display: flex; align-items: center; gap: 12px; padding: 12px 14px; cursor: pointer; list-style: none; }
+.u-card summary::-webkit-details-marker { display: none; }
+.avatar.sm { width: 40px; height: 40px; font-size: 1.1rem; flex: none; }
+.u-main { min-width: 0; flex: 1; }
+.u-name { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.u-name b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.u-seen { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: .84rem; }
+.u-seen i { width: 8px; height: 8px; border-radius: 50%; background: var(--line); flex: none; }
+.u-seen.on { color: var(--green); font-weight: 600; }
+.u-seen.on i { background: #3fa66b; box-shadow: 0 0 0 3px rgba(63, 166, 107, .22); }
+.u-nums { display: flex; gap: 14px; flex: none; }
+.u-nums span { display: flex; flex-direction: column; align-items: center; font-size: .7rem; color: var(--muted); line-height: 1.2; }
+.u-nums b { font: 700 1.15rem var(--font-display); color: var(--green); }
+.u-body { padding: 4px 14px 14px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 12px; }
+.u-facts { display: flex; flex-wrap: wrap; gap: 6px; padding-top: 12px; }
+.u-chip { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px; font-size: .8rem; }
+.u-chip.fire { border-color: var(--gold); color: var(--ink); font-weight: 600; }
+.u-chip.fire svg { width: 14px; height: 14px; }
+.u-chip.dim { color: var(--muted); }
+.u-list h5 { margin: 0 0 6px; font-size: .78rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+.u-list h5 span { color: var(--green); }
+.u-book { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 7px 0; border-bottom: 1px dashed var(--line); }
+.u-book:last-child { border-bottom: 0; }
+.u-book b { min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
+.u-book span { flex: none; max-width: 48%; text-align: right; color: var(--muted); font-size: .82rem; }
+@media (max-width: 560px) {
+  .stats.four { grid-template-columns: repeat(2, 1fr); }
+  .u-card summary { flex-wrap: wrap; }
+  .u-nums { width: 100%; justify-content: space-around; padding-top: 8px; border-top: 1px dashed var(--line); }
+  .u-book { flex-direction: column; gap: 2px; }
+  .u-book span { max-width: none; text-align: left; }
+}

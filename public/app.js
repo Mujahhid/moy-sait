@@ -337,11 +337,12 @@
   /* ================= Роутинг и страницы ================= */
   const view = $('#view');
 
-  const ROUTES = ['home', 'publishers', 'catalog', 'favorites', 'offline', 'profile'];
+  const ROUTES = ['home', 'publishers', 'catalog', 'favorites', 'offline', 'profile', 'users'];
   function currentRoute() {
     const h = location.hash.replace(/^#/, '');
     const r = ROUTES.includes(h) ? h : 'home';
     if (r === 'profile' && !state.me) return 'home';
+    if (r === 'users' && !state.me?.isAdmin) return state.me ? 'catalog' : 'home'; // раздел только для администратора
     return r === 'home' && state.me ? 'catalog' : r; // «Главная» — только окно входа для гостя
   }
 
@@ -350,8 +351,8 @@
   function updateNav() {
     $('.tabbar [data-nav=home]').hidden = !!state.me;
     $$('.tabbar [data-nav]').forEach((el) => {
-      el.classList.toggle('active', el.dataset.nav === state.route);
-      if (el.tagName === 'A') el.setAttribute('aria-current', el.dataset.nav === state.route ? 'page' : 'false');
+      el.classList.toggle('active', el.dataset.nav === (state.route === 'users' ? 'profile' : state.route));
+      if (el.tagName === 'A') el.setAttribute('aria-current', el.dataset.nav === (state.route === 'users' ? 'profile' : state.route) ? 'page' : 'false');
     });
     $('#nav-profile span').textContent = state.me ? state.me.nick : 'Профиль';
     $('#tab-register').hidden = !state.registration;
@@ -363,7 +364,7 @@
   async function render() {
     state.route = currentRoute();
     if (state.me && off.ok && !off.scanned) { off.scanned = true; await offlineScan(); }
-    if (state.me && location.hash !== '#' + state.route && !['publishers', 'favorites', 'offline', 'profile'].includes(state.route)) {
+    if (state.me && location.hash !== '#' + state.route && !['publishers', 'favorites', 'offline', 'profile', 'users'].includes(state.route)) {
       history.replaceState(null, '', '#' + state.route);
     }
     if (state.route !== 'publishers') state.publisher = '';
@@ -376,6 +377,7 @@
       else if (state.route === 'catalog') await renderCatalog();
       else if (state.route === 'offline') await renderOffline();
       else if (state.route === 'profile') await renderProfile();
+      else if (state.route === 'users') await renderUsers();
       else await renderFavorites();
     } catch (e) {
       view.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
@@ -900,6 +902,114 @@
     </article>`;
   }
 
+  /* ================= Пользователи (только администратор) ================= */
+  const USERS = { q: '', open: new Set() };
+  const MONTHS_SHORT = ['янв', 'фев', 'мар', 'апр', 'мая', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
+  const pad2 = (n) => String(n).padStart(2, '0');
+  const fmtClock = (d) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+  const fmtDate = (ts) => { const d = new Date(ts); return `${d.getDate()} ${MONTHS_SHORT[d.getMonth()]} ${d.getFullYear()}`; };
+  const ONLINE_MS = 5 * 60000;
+
+  // «Сейчас в сети», «12 мин назад», «вчера в 14:30», «3 окт, 09:15»
+  function lastSeenText(ts, nowMs) {
+    if (!ts) return 'нет данных о заходах';
+    const diff = nowMs - ts;
+    if (diff < ONLINE_MS) return 'сейчас в сети';
+    const d = new Date(ts);
+    const n = new Date(nowMs);
+    const startOf = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+    const days = Math.round((startOf(n) - startOf(d)) / 86400000);
+    if (diff < 3600000) return `был ${Math.max(1, Math.round(diff / 60000))} мин назад`;
+    if (days === 0) return `был сегодня в ${fmtClock(d)}`;
+    if (days === 1) return `был вчера в ${fmtClock(d)}`;
+    return `был ${d.getDate()} ${MONTHS_SHORT[d.getMonth()]}, ${fmtClock(d)}`;
+  }
+
+  function userBookList(title, list, kind, nowMs) {
+    if (!list.length) return '';
+    const sub = (b) => {
+      if (kind === 'want') return `добавлена ${fmtDate(b.addedAt)}`;
+      if (kind === 'done') return `прочитана ${fmtDate(b.updatedAt)}`;
+      return `${b.pages > 0 ? `стр. ${b.page} из ${b.pages}` : `стр. ${b.page}`} · ${lastSeenText(b.updatedAt, nowMs).replace('был ', '').replace('сейчас в сети', 'только что')}`;
+    };
+    return `<div class="u-list"><h5>${title} <span>${list.length}</span></h5>
+      ${list.map((b) => `<div class="u-book"><b dir="auto">${esc(b.title)}</b><span>${esc(sub(b))}</span></div>`).join('')}</div>`;
+  }
+
+  function userCardHtml(u, nowMs) {
+    const online = u.lastSeenAt && nowMs - u.lastSeenAt < ONLINE_MS;
+    const open = USERS.open.has(u.id);
+    const streakTxt = u.streak > 0
+      ? `<span class="u-chip fire">${FLAME_SVG}${u.streak} ${daysWord(u.streak)} подряд</span>`
+      : `<span class="u-chip dim">серии нет${u.bestStreak ? ` · рекорд ${u.bestStreak}` : ''}</span>`;
+    return `<details class="u-card" data-uid="${u.id}" ${open ? 'open' : ''}>
+      <summary>
+        <div class="avatar sm">${esc(u.nick[0])}</div>
+        <div class="u-main">
+          <div class="u-name"><b>${esc(u.nick)}</b>${u.isAdmin ? '<span class="badge">админ</span>' : ''}</div>
+          <div class="u-seen ${online ? 'on' : ''}"><i></i>${esc(lastSeenText(u.lastSeenAt, nowMs))}</div>
+        </div>
+        <div class="u-nums" aria-label="Читает, прочитал, хочет прочитать">
+          <span title="Читает"><b>${u.reading.length}</b>читает</span>
+          <span title="Прочитал"><b>${u.finished.length}</b>прочитал</span>
+          <span title="Хочет прочитать"><b>${u.want.length}</b>хочет</span>
+        </div>
+      </summary>
+      <div class="u-body">
+        <div class="u-facts">
+          ${streakTxt}
+          ${u.streak > 0 && u.bestStreak > u.streak ? `<span class="u-chip dim">рекорд ${u.bestStreak}</span>` : ''}
+          <span class="u-chip dim">регистрация ${esc(fmtDate(u.createdAt))}</span>
+          ${u.lastReadDay ? `<span class="u-chip dim">последнее чтение ${esc(u.lastReadDay.split('-').reverse().join('.'))}</span>` : ''}
+        </div>
+        ${userBookList('Читает', u.reading, 'reading', nowMs)}
+        ${userBookList('Прочитал', u.finished, 'done', nowMs)}
+        ${userBookList('Хочет прочитать', u.want, 'want', nowMs)}
+        ${!u.reading.length && !u.finished.length && !u.want.length ? '<p class="muted small">Пока не открывал книги и ничего не добавлял.</p>' : ''}
+      </div>
+    </details>`;
+  }
+
+  async function renderUsers() {
+    view.innerHTML = '<div class="page-head"><a class="back-link" href="#profile">← Профиль</a><h1 class="page-title">Пользователи</h1></div><p class="muted">Загрузка…</p>';
+    const { users, serverTime } = await api('GET', '/api/admin/users');
+    // часы сервера и устройства могут расходиться: считаем «сейчас» по серверу
+    const nowMs = serverTime + 0;
+    const startToday = new Date(nowMs); startToday.setHours(0, 0, 0, 0);
+    const online = users.filter((u) => u.lastSeenAt && nowMs - u.lastSeenAt < ONLINE_MS).length;
+    const today = users.filter((u) => u.lastSeenAt >= startToday.getTime()).length;
+    const week = users.filter((u) => u.lastSeenAt >= nowMs - 7 * 86400000).length;
+    const withStreak = users.filter((u) => u.streak > 0).length;
+    view.innerHTML = `<div class="page-head"><a class="back-link" href="#profile">← Профиль</a>
+        <h1 class="page-title">Пользователи</h1>
+        <p class="page-sub">Кто зарегистрирован, что читает и когда заходил</p></div>
+      <div class="stats four">
+        <div class="stat"><b>${users.length}</b><span>зарегистрировано</span></div>
+        <div class="stat"><b>${online}</b><span>в сети сейчас</span></div>
+        <div class="stat"><b>${today}</b><span>заходили сегодня</span></div>
+        <div class="stat"><b>${withStreak}</b><span>читают подряд</span></div>
+      </div>
+      <p class="muted small u-week">За 7 дней заходили: <b>${week}</b> из ${users.length}</p>
+      <div class="u-tools">
+        <input type="search" id="u-q" placeholder="Найти по нику" autocomplete="off" value="${esc(USERS.q)}" aria-label="Найти по нику">
+        <button type="button" class="btn ghost small" id="u-refresh">Обновить</button>
+      </div>
+      <div class="u-list-wrap" id="u-wrap"></div>`;
+    const paint = () => {
+      const q = USERS.q.trim().toLowerCase();
+      const shown = users.filter((u) => !q || u.nick.toLowerCase().includes(q));
+      $('#u-wrap').innerHTML = shown.length ? shown.map((u) => userCardHtml(u, nowMs)).join('')
+        : '<div class="empty">Никого не найдено.</div>';
+      $$('#u-wrap details').forEach((d) => d.addEventListener('toggle', () => {
+        const id = Number(d.dataset.uid);
+        if (d.open) USERS.open.add(id); else USERS.open.delete(id);
+      }));
+    };
+    $('#u-q').oninput = (e) => { USERS.q = e.target.value; paint(); };
+    $('#u-refresh').onclick = () => renderUsers().catch((e) => toast(e.message, true));
+    paint();
+  }
+
   // «Мои книги»: «Хочу прочитать» (то, что добавлено кнопкой ♡), «Читаю» и «Прочитано»
   const MYBOOKS = { tab: 'reading' };
   async function renderFavorites() {
@@ -1165,7 +1275,7 @@
           <span class="txt"><b dir="auto">${esc(b.title)}</b>
           <span class="sub">${b.pages > 0 ? `стр. ${b.progress.page} из ${b.pages}` : `стр. ${b.progress.page}`}</span></span>
         </button>`).join('')}</div>` : ''}
-      ${state.me.isAdmin ? '<div class="profile-actions"><button type="button" class="btn primary" id="p-manage">Управление библиотекой</button></div>' : ''}
+      ${state.me.isAdmin ? '<div class="profile-actions"><button type="button" class="btn primary" id="p-manage">Управление библиотекой</button><a class="btn primary" href="#users">Пользователи</a></div>' : ''}
       <form class="pw-form" id="pw-form" hidden>
         <label class="field">Текущий пароль<input name="old" type="password" autocomplete="current-password" required></label>
         <label class="field">Новый пароль (от 6 символов)<input name="new" type="password" autocomplete="new-password" minlength="6" required></label>

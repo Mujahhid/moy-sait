@@ -92,6 +92,7 @@ db.exec(`
   if (!cols.includes('streak')) db.exec('ALTER TABLE users ADD COLUMN streak INTEGER NOT NULL DEFAULT 0');
   if (!cols.includes('best_streak')) db.exec('ALTER TABLE users ADD COLUMN best_streak INTEGER NOT NULL DEFAULT 0');
   if (!cols.includes('last_read_day')) db.exec("ALTER TABLE users ADD COLUMN last_read_day TEXT NOT NULL DEFAULT ''");
+  if (!cols.includes('last_seen_at')) db.exec('ALTER TABLE users ADD COLUMN last_seen_at INTEGER NOT NULL DEFAULT 0');
 }
 
 const now = () => Date.now();
@@ -241,6 +242,16 @@ function currentUser(req) {
     return null;
   }
   return { id: row.id, nick: row.nick, isAdmin: !!row.is_admin, token };
+}
+
+// «Был в сети»: любой запрос вошедшего пользователя к API обновляет время, но не чаще раза в минуту
+const seenAt = new Map();
+function touchSeen(user) {
+  if (!user) return;
+  const t = now();
+  if (t - (seenAt.get(user.id) || 0) < 60000) return;
+  seenAt.set(user.id, t);
+  db.prepare('UPDATE users SET last_seen_at = ? WHERE id = ?').run(t, user.id);
 }
 
 const attempts = new Map();
@@ -666,6 +677,7 @@ route('POST', '/api/register', async (ctx) => {
     .prepare('INSERT INTO users (nick, pass_hash, salt, is_admin, created_at) VALUES (?, ?, ?, ?, ?)')
     .run(nick, hashPassword(password, salt), salt, isAdmin, now());
   const id = Number(info.lastInsertRowid);
+  touchSeen({ id });
   sendJson(ctx.res, 200, { user: { id, nick, isAdmin: !!isAdmin } }, { 'Set-Cookie': createSession(ctx.req, id) });
 });
 
@@ -680,6 +692,7 @@ route('POST', '/api/login', async (ctx) => {
     db.prepare('UPDATE users SET is_admin = 1 WHERE id = ?').run(u.id);
     u.is_admin = 1;
   }
+  touchSeen({ id: u.id });
   sendJson(
     ctx.res, 200,
     { user: { id: u.id, nick: u.nick, isAdmin: !!u.is_admin } },
@@ -1096,6 +1109,51 @@ route('GET', '/api/stats', (ctx) => {
   });
 });
 
+// --- Пользователи (только администратор): кто что читает, серии, когда был в сети
+route('GET', '/api/admin/users', (ctx) => {
+  requireAdmin(ctx);
+  const t = now();
+  const today = Math.floor(t / DAY_MS);
+  const users = db.prepare('SELECT id, nick, is_admin, created_at, streak, best_streak, last_read_day, last_seen_at FROM users').all();
+  const bookInfo = (r) => ({ id: r.book_id, title: r.title, author: r.author, pages: r.pages });
+  const byUser = new Map(users.map((u) => [u.id, { reading: [], finished: [], want: [], lastProgress: 0 }]));
+  const prog = db.prepare(
+    `SELECT p.user_id, p.book_id, p.page, p.updated_at, b.title, b.author, b.pages
+     FROM progress p JOIN books b ON b.id = p.book_id ORDER BY p.updated_at DESC`
+  ).all();
+  for (const r of prog) {
+    const o = byUser.get(r.user_id);
+    if (!o) continue;
+    o.lastProgress = Math.max(o.lastProgress, r.updated_at);
+    const item = { ...bookInfo(r), page: r.page, updatedAt: r.updated_at };
+    (r.pages > 0 && r.page >= r.pages ? o.finished : o.reading).push(item);
+  }
+  const favs = db.prepare(
+    `SELECT f.user_id, f.book_id, f.created_at, b.title, b.author, b.pages
+     FROM favorites f JOIN books b ON b.id = f.book_id ORDER BY f.created_at DESC`
+  ).all();
+  for (const r of favs) byUser.get(r.user_id)?.want.push({ ...bookInfo(r), addedAt: r.created_at });
+  const out = users.map((u) => {
+    const o = byUser.get(u.id);
+    const lastN = u.last_read_day ? dayNum(u.last_read_day) : -1e9;
+    const alive = today - lastN <= 1; // читал сегодня или вчера — серия жива
+    return {
+      id: u.id,
+      nick: u.nick,
+      isAdmin: !!u.is_admin,
+      createdAt: u.created_at,
+      lastSeenAt: u.last_seen_at || o.lastProgress || 0, // у старых аккаунтов времени входа нет — берём последнее чтение
+      streak: alive ? u.streak : 0,
+      bestStreak: u.best_streak,
+      lastReadDay: u.last_read_day || '',
+      reading: o.reading,
+      finished: o.finished,
+      want: o.want,
+    };
+  }).sort((a, b) => b.lastSeenAt - a.lastSeenAt);
+  sendJson(ctx.res, 200, { users: out, serverTime: t }, { 'Cache-Control': 'no-store' });
+});
+
 route('GET', '/healthz', (ctx) => {
   ctx.res.writeHead(200, { 'Content-Type': 'text/plain' });
   ctx.res.end('ok');
@@ -1121,6 +1179,7 @@ async function handle(req, res) {
     const params = {};
     r.keys.forEach((k, i) => (params[k] = decodeURIComponent(m[i + 1])));
     const ctx = { req, res, params, query: url.searchParams, ip: clientIp(req), user: currentUser(req) };
+    if (url.pathname.startsWith('/api/')) touchSeen(ctx.user);
     return r.handler(ctx);
   }
   const known = routes.some((r) => r.re.test(url.pathname));
