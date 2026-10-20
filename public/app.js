@@ -948,7 +948,7 @@
   }
 
   /* ================= Пользователи (только администратор) ================= */
-  const USERS = { q: '', open: new Set() };
+  const USERS = { q: '', open: new Set(), hist: new Set(), edit: null, notice: null, timer: 0, now: 0 };
   const MONTHS_SHORT = ['янв', 'фев', 'мар', 'апр', 'мая', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
   const pad2 = (n) => String(n).padStart(2, '0');
   const fmtClock = (d) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
@@ -970,15 +970,80 @@
     return `был ${d.getDate()} ${MONTHS_SHORT[d.getMonth()]}, ${fmtClock(d)}`;
   }
 
-  function userBookList(title, list, kind, nowMs) {
+  const pctOf = (b) => (b.pages > 0 ? Math.min(100, Math.round((b.page / b.pages) * 100)) : null);
+  const pageText = (b) => (b.pages > 0 ? `стр. ${b.page} из ${b.pages}` : `стр. ${b.page}`);
+  const agoText = (ts, nowMs) => lastSeenText(ts, nowMs).replace('был ', '').replace('сейчас в сети', 'только что');
+  // случайный пароль без похожих символов (0/O, 1/l/I)
+  function genPassword() {
+    const abc = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    const a = new Uint32Array(10);
+    crypto.getRandomValues(a);
+    return [...a].map((n) => abc[n % abc.length]).join('');
+  }
+
+  // одна книга в истории чтения: страница, процент и полоска прогресса
+  function userBookRow(b, kind, nowMs) {
+    const p = kind === 'done' ? 100 : pctOf(b);
+    const head = kind === 'done' ? `прочитана${p != null ? ' · 100%' : ''}` : `${pageText(b)}${p != null ? ` · ${p}%` : ''}`;
+    const when = kind === 'done' ? fmtDate(b.updatedAt) : agoText(b.updatedAt, nowMs);
+    return `<div class="u-book"><div class="ub-top"><b dir="auto">${esc(b.title)}</b><span>${esc(head)}</span></div>
+      ${p != null ? `<div class="bar"><i style="width:${p}%"></i></div>` : ''}<small>${esc(when)}</small></div>`;
+  }
+
+  function userWantList(list) {
     if (!list.length) return '';
-    const sub = (b) => {
-      if (kind === 'want') return `добавлена ${fmtDate(b.addedAt)}`;
-      if (kind === 'done') return `прочитана ${fmtDate(b.updatedAt)}`;
-      return `${b.pages > 0 ? `стр. ${b.page} из ${b.pages}` : `стр. ${b.page}`} · ${lastSeenText(b.updatedAt, nowMs).replace('был ', '').replace('сейчас в сети', 'только что')}`;
-    };
-    return `<div class="u-list"><h5>${title} <span>${list.length}</span></h5>
-      ${list.map((b) => `<div class="u-book"><b dir="auto">${esc(b.title)}</b><span>${esc(sub(b))}</span></div>`).join('')}</div>`;
+    return `<div class="u-list"><h5>Хочет прочитать <span>${list.length}</span></h5>
+      ${list.map((b) => `<div class="u-book"><div class="ub-top"><b dir="auto">${esc(b.title)}</b><span>добавлена ${esc(fmtDate(b.addedAt))}</span></div></div>`).join('')}</div>`;
+  }
+
+  // «Что читал раньше» — сворачивается, открывается нажатием
+  function userHistory(u, nowMs) {
+    const items = [
+      ...u.reading.map((b) => ({ b, kind: 'reading' })),
+      ...u.finished.map((b) => ({ b, kind: 'done' })),
+    ].sort((x, y) => y.b.updatedAt - x.b.updatedAt);
+    if (!items.length) return '<p class="muted small">Пока не открывал книги.</p>';
+    return `<details class="u-hist" data-hist="${u.id}" ${USERS.hist.has(u.id) ? 'open' : ''}>
+      <summary>Что читал раньше <span>${items.length}</span></summary>
+      ${items.map((x) => userBookRow(x.b, x.kind, nowMs)).join('')}
+    </details>`;
+  }
+
+  function userDevices(u) {
+    const list = u.devices || [];
+    const rows = list.length
+      ? list.map((d) => `<div class="u-dev"><b>${esc(d.label)}</b>
+          <span>${d.lastUsedAt ? `активно: ${esc(lastSeenText(d.lastUsedAt, USERS.now).replace('был ', ''))}` : 'давно'}${d.createdAt ? ` · вход ${esc(fmtDate(d.createdAt))}` : ''}</span></div>`).join('')
+      : '<p class="muted small">Сейчас нет активных входов.</p>';
+    return `<div class="u-list"><h5>Устройства, с которых вошёл <span>${list.length}</span></h5>${rows}</div>`;
+  }
+
+  // блок «Аккаунт»: логин, пароль и действия; редактирование — прямо в карточке
+  function userAccount(u) {
+    const ed = USERS.edit && USERS.edit.id === u.id ? USERS.edit.kind : '';
+    const notice = USERS.notice && USERS.notice.id === u.id ? USERS.notice : null;
+    let form = '';
+    if (ed === 'nick') {
+      form = `<div class="u-edit"><label>Новый логин<input type="text" id="ue-input" value="${esc(u.nick)}" maxlength="24" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
+        <p class="form-error" id="ue-err"></p>
+        <div class="u-edit-btns"><button type="button" class="btn primary small" data-uact="save">Сохранить</button><button type="button" class="btn ghost small" data-uact="cancel">Отмена</button></div></div>`;
+    } else if (ed === 'pass') {
+      form = `<div class="u-edit"><label>Новый пароль (не короче 6 символов)<input type="text" id="ue-input" value="${esc(USERS.edit.value)}" maxlength="200" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
+        <p class="form-error" id="ue-err"></p>
+        <div class="u-edit-btns"><button type="button" class="btn primary small" data-uact="save">Сохранить</button>
+        <button type="button" class="btn ghost small" data-uact="regen">Другой пароль</button><button type="button" class="btn ghost small" data-uact="cancel">Отмена</button></div>
+        <p class="muted small">После сохранения человек выйдет со всех устройств и войдёт уже с новым паролем.</p></div>`;
+    }
+    return `<div class="u-acc">
+      <div class="u-cred"><span>Логин (он же ник)</span><b dir="ltr">${esc(u.nick)}</b></div>
+      <div class="u-cred"><span>Пароль</span><b>скрыт</b><small>Пароли хранятся в зашифрованном виде: прочитать их нельзя, можно задать новый.</small></div>
+      ${notice ? `<div class="u-notice">${esc(notice.text)}${notice.password ? `<div class="u-pw"><code>${esc(notice.password)}</code><button type="button" class="btn ghost small" data-uact="copy" data-pw="${esc(notice.password)}">Копировать</button></div>` : ''}</div>` : ''}
+      ${form}
+      <div class="u-actions">
+        <button type="button" class="btn ghost small" data-uact="nick">Сменить логин</button>
+        <button type="button" class="btn ghost small" data-uact="pass">Сбросить пароль</button>
+        ${u.isMe ? '' : '<button type="button" class="btn danger small" data-uact="delete">Удалить аккаунт</button>'}
+      </div></div>`;
   }
 
   function userCardHtml(u, nowMs) {
@@ -987,11 +1052,19 @@
     const streakTxt = u.streak > 0
       ? `<span class="u-chip fire">${FLAME_SVG}${u.streak} ${daysWord(u.streak)} подряд</span>`
       : `<span class="u-chip dim">серии нет${u.bestStreak ? ` · рекорд ${u.bestStreak}` : ''}</span>`;
+    const now = u.readingNow;
+    const nowP = now ? pctOf(now) : null;
+    const nowHtml = now
+      ? `<div class="u-now"><i class="pulse"></i><div class="u-now-tx"><span class="lbl">Читает сейчас</span>
+          <b dir="auto">${esc(now.title)}</b>
+          <span class="pg">${esc(pageText(now))}${nowP != null ? ` · ${nowP}%` : ''}</span></div>
+          ${nowP != null ? `<div class="bar"><i style="width:${nowP}%"></i></div>` : ''}</div>`
+      : '';
     return `<details class="u-card" data-uid="${u.id}" ${open ? 'open' : ''}>
       <summary>
         <div class="avatar sm">${esc(u.nick[0])}</div>
         <div class="u-main">
-          <div class="u-name"><b>${esc(u.nick)}</b>${u.isAdmin ? '<span class="badge">админ</span>' : ''}</div>
+          <div class="u-name"><b>${esc(u.nick)}</b>${u.isAdmin ? '<span class="badge">админ</span>' : ''}${u.isMe ? '<span class="badge dim">это вы</span>' : ''}</div>
           <div class="u-seen ${online ? 'on' : ''}"><i></i>${esc(lastSeenText(u.lastSeenAt, nowMs))}</div>
         </div>
         <div class="u-nums" aria-label="Читает, прочитал, хочет прочитать">
@@ -999,6 +1072,7 @@
           <span title="Прочитал"><b>${u.finished.length}</b>прочитал</span>
           <span title="Хочет прочитать"><b>${u.want.length}</b>хочет</span>
         </div>
+        ${nowHtml}
       </summary>
       <div class="u-body">
         <div class="u-facts">
@@ -1007,52 +1081,128 @@
           <span class="u-chip dim">регистрация ${esc(fmtDate(u.createdAt))}</span>
           ${u.lastReadDay ? `<span class="u-chip dim">последнее чтение ${esc(u.lastReadDay.split('-').reverse().join('.'))}</span>` : ''}
         </div>
-        ${userBookList('Читает', u.reading, 'reading', nowMs)}
-        ${userBookList('Прочитал', u.finished, 'done', nowMs)}
-        ${userBookList('Хочет прочитать', u.want, 'want', nowMs)}
-        ${!u.reading.length && !u.finished.length && !u.want.length ? '<p class="muted small">Пока не открывал книги и ничего не добавлял.</p>' : ''}
+        ${userAccount(u)}
+        ${userDevices(u)}
+        ${userHistory(u, nowMs)}
+        ${userWantList(u.want)}
       </div>
     </details>`;
   }
 
   async function renderUsers() {
+    clearInterval(USERS.timer);
+    USERS.edit = null;
+    USERS.notice = null; // показанный один раз пароль не должен задержаться после ухода со страницы
     view.innerHTML = '<div class="page-head"><a class="back-link" href="#profile">← Профиль</a><h1 class="page-title">Пользователи</h1></div><p class="muted">Загрузка…</p>';
-    const { users, serverTime } = await api('GET', '/api/admin/users');
+    let { users, serverTime } = await api('GET', '/api/admin/users');
     // часы сервера и устройства могут расходиться: считаем «сейчас» по серверу
-    const nowMs = serverTime + 0;
-    const startToday = new Date(nowMs); startToday.setHours(0, 0, 0, 0);
-    const online = users.filter((u) => u.lastSeenAt && nowMs - u.lastSeenAt < ONLINE_MS).length;
-    const today = users.filter((u) => u.lastSeenAt >= startToday.getTime()).length;
-    const week = users.filter((u) => u.lastSeenAt >= nowMs - 7 * 86400000).length;
-    const withStreak = users.filter((u) => u.streak > 0).length;
+    let nowMs = serverTime + 0;
+    USERS.now = nowMs;
+    const nowCount = () => users.filter((u) => u.readingNow).length;
     view.innerHTML = `<div class="page-head"><a class="back-link" href="#profile">← Профиль</a>
         <h1 class="page-title">Пользователи</h1>
-        <p class="page-sub">Кто зарегистрирован, что читает и когда заходил</p></div>
-      <div class="stats four">
-        <div class="stat"><b>${users.length}</b><span>зарегистрировано</span></div>
-        <div class="stat"><b>${online}</b><span>в сети сейчас</span></div>
-        <div class="stat"><b>${today}</b><span>заходили сегодня</span></div>
-        <div class="stat"><b>${withStreak}</b><span>читают подряд</span></div>
-      </div>
-      <p class="muted small u-week">За 7 дней заходили: <b>${week}</b> из ${users.length}</p>
+        <p class="page-sub">Кто зарегистрирован, что читает прямо сейчас и что читал раньше</p></div>
+      <div class="stats four" id="u-stats"></div>
+      <p class="muted small u-week" id="u-week"></p>
       <div class="u-tools">
         <input type="search" id="u-q" placeholder="Найти по нику" autocomplete="off" value="${esc(USERS.q)}" aria-label="Найти по нику">
         <button type="button" class="btn ghost small" id="u-refresh">Обновить</button>
       </div>
       <div class="u-list-wrap" id="u-wrap"></div>`;
+    const paintStats = () => {
+      const startToday = new Date(nowMs); startToday.setHours(0, 0, 0, 0);
+      const online = users.filter((u) => u.lastSeenAt && nowMs - u.lastSeenAt < ONLINE_MS).length;
+      const today = users.filter((u) => u.lastSeenAt >= startToday.getTime()).length;
+      const week = users.filter((u) => u.lastSeenAt >= nowMs - 7 * 86400000).length;
+      $('#u-stats').innerHTML = `
+        <div class="stat"><b>${users.length}</b><span>зарегистрировано</span></div>
+        <div class="stat"><b>${online}</b><span>в сети сейчас</span></div>
+        <div class="stat"><b>${nowCount()}</b><span>читают сейчас</span></div>
+        <div class="stat"><b>${today}</b><span>заходили сегодня</span></div>`;
+      $('#u-week').innerHTML = `За 7 дней заходили: <b>${week}</b> из ${users.length}`;
+    };
     const paint = () => {
       const q = USERS.q.trim().toLowerCase();
       const shown = users.filter((u) => !q || u.nick.toLowerCase().includes(q));
       $('#u-wrap').innerHTML = shown.length ? shown.map((u) => userCardHtml(u, nowMs)).join('')
         : '<div class="empty">Никого не найдено.</div>';
-      $$('#u-wrap details').forEach((d) => d.addEventListener('toggle', () => {
+      paintStats();
+      $('#ue-input')?.focus({ preventScroll: true });
+    };
+    const reload = async () => {
+      const r = await api('GET', '/api/admin/users');
+      users = r.users; nowMs = r.serverTime; USERS.now = nowMs;
+      paint();
+    };
+    // открытие/закрытие карточек и вложенной истории запоминаем
+    $('#u-wrap').addEventListener('toggle', (e) => {
+      const d = e.target;
+      if (d.matches('.u-card')) {
         const id = Number(d.dataset.uid);
         if (d.open) USERS.open.add(id); else USERS.open.delete(id);
-      }));
-    };
+      } else if (d.matches('.u-hist')) {
+        const id = Number(d.dataset.hist);
+        if (d.open) USERS.hist.add(id); else USERS.hist.delete(id);
+      }
+    }, true);
+    $('#u-wrap').addEventListener('click', async (e) => {
+      const btn = e.target.closest('[data-uact]');
+      if (!btn) return;
+      const card = btn.closest('.u-card');
+      const u = users.find((x) => x.id === Number(card?.dataset.uid));
+      if (!u) return;
+      const act = btn.dataset.uact;
+      if (act === 'nick') { USERS.edit = { id: u.id, kind: 'nick' }; USERS.notice = null; paint(); return; }
+      if (act === 'pass') { USERS.edit = { id: u.id, kind: 'pass', value: genPassword() }; USERS.notice = null; paint(); return; }
+      if (act === 'regen') { USERS.edit.value = genPassword(); paint(); return; }
+      if (act === 'cancel') { USERS.edit = null; paint(); return; }
+      if (act === 'copy') {
+        try { await navigator.clipboard.writeText(btn.dataset.pw); toast('Пароль скопирован'); } catch { toast('Не удалось скопировать — выделите пароль вручную', true); }
+        return;
+      }
+      if (act === 'save') {
+        const input = $('#ue-input');
+        const value = input.value.trim();
+        const err = $('#ue-err');
+        err.textContent = '';
+        btn.disabled = true;
+        try {
+          if (USERS.edit.kind === 'nick') {
+            if (value === u.nick) { USERS.edit = null; paint(); return; }
+            await api('POST', `/api/admin/users/${u.id}/nick`, { nick: value });
+            USERS.notice = { id: u.id, text: `Логин изменён: теперь «${value}». Скажите человеку новый логин — пароль прежний.` };
+            if (u.isMe) state.me.nick = value;
+          } else {
+            await api('POST', `/api/admin/users/${u.id}/password`, { password: input.value });
+            USERS.notice = { id: u.id, text: `Пароль для «${u.nick}» изменён. Передайте его человеку — потом он сможет сменить его сам в профиле.`, password: input.value };
+          }
+          USERS.edit = null;
+          await reload();
+        } catch (er) {
+          err.textContent = er.message;
+          btn.disabled = false;
+        }
+        return;
+      }
+      if (act === 'delete') {
+        if (!confirm(`Удалить аккаунт «${u.nick}»?\n\nВместе с ним удалятся закладки, выделения, прогресс чтения и список «Хочу прочитать». Это нельзя отменить.`)) return;
+        try {
+          await api('DELETE', `/api/admin/users/${u.id}`);
+          USERS.open.delete(u.id);
+          toast(`Аккаунт «${u.nick}» удалён`);
+          await reload();
+        } catch (er) { toast(er.message, true); }
+      }
+    });
     $('#u-q').oninput = (e) => { USERS.q = e.target.value; paint(); };
-    $('#u-refresh').onclick = () => renderUsers().catch((e) => toast(e.message, true));
+    $('#u-refresh').onclick = () => reload().then(() => toast('Обновлено')).catch((e) => toast(e.message, true));
     paint();
+    // «читает сейчас» обновляется само, пока открыта эта страница и не идёт редактирование
+    USERS.timer = setInterval(() => {
+      if (state.route !== 'users' || !$('#u-wrap')) { clearInterval(USERS.timer); return; }
+      if (USERS.edit || document.hidden) return;
+      reload().catch(() => {});
+    }, 30000);
   }
 
   // «Мои книги»: «Хочу прочитать» (то, что добавлено кнопкой ♡), «Читаю» и «Прочитано»
@@ -1448,28 +1598,71 @@
     const nBm = books.reduce((n, b) => n + b.bookmarks.length, 0);
     const tab = (id, label, n) => `<button type="button" role="tab" class="tab ${NOTES.tab === id ? 'active' : ''}" aria-selected="${NOTES.tab === id}" data-ntab="${id}">${label} <span class="n">${n}</span></button>`;
     let list;
+    // что именно стоит за каждой кнопкой «удалить всё»: номер раздела -> список заметок
+    NOTES.sections = [];
+    const rmBtn = (book, kind, id) => `<button type="button" class="n-rm" data-nrm="${book}|${kind}|${esc(id)}" aria-label="Удалить" title="Удалить">✕</button>`;
+    const clearBtn = (items, label) => {
+      NOTES.sections.push(items);
+      return `<div class="n-foot"><button type="button" class="n-clear" data-nclear="${NOTES.sections.length - 1}">${label} (${items.length})</button></div>`;
+    };
     if (NOTES.tab === 'highlights') {
       const groups = noteGroups();
       const openAll = nHl <= 40;
       list = groups.length ? groups.map((g, i) => `<details class="n-sec" ${openAll || i === 0 ? 'open' : ''}>
           <summary><i class="tdot c-${esc(g.color)}"></i><b dir="auto">${esc(g.label)}</b><span class="cnt">${g.items.length}</span></summary>
-          ${g.items.map((h) => `<button type="button" class="n-item" data-nbook="${h.book.id}" data-npage="${h.page}">
+          ${g.items.map((h) => `<div class="n-row"><button type="button" class="n-item" data-nbook="${h.book.id}" data-npage="${h.page}">
             <i class="nbar c-${esc(h.color)}"></i>
             <span class="tx"><span class="src" dir="auto">${esc(h.book.title)} · стр. ${h.page}</span>
-            <span class="q" dir="auto">${esc(String(h.text).length > 220 ? `${String(h.text).slice(0, 220)}…` : h.text)}</span></span></button>`).join('')}
+            <span class="q" dir="auto">${esc(String(h.text).length > 220 ? `${String(h.text).slice(0, 220)}…` : h.text)}</span></span></button>${rmBtn(h.book.id, 'highlight', h.id)}</div>`).join('')}
+          ${clearBtn(g.items.map((h) => ({ book: h.book.id, kind: 'highlight', id: h.id })), 'Удалить все в этой теме')}
         </details>`).join('')
         : '<div class="r-empty">Выделений пока нет.<br>Откройте книгу и выделите текст — он появится здесь, сгруппированный по темам.</div>';
+      if (nHl > 1) list += clearBtn(books.flatMap((b) => b.highlights.map((h) => ({ book: b.id, kind: 'highlight', id: h.id }))), 'Удалить все выделения');
     } else {
       const withBm = books.filter((b) => b.bookmarks.length);
       list = withBm.length ? withBm.map((b) => `<details class="n-sec" open>
           <summary><b dir="auto">${esc(b.title)}</b><span class="cnt">${b.bookmarks.length}</span></summary>
-          ${[...b.bookmarks].sort((x, y) => x.page - y.page).map((m) => `<button type="button" class="n-item" data-nbook="${b.id}" data-npage="${m.page}">
+          ${[...b.bookmarks].sort((x, y) => x.page - y.page).map((m) => `<div class="n-row"><button type="button" class="n-item" data-nbook="${b.id}" data-npage="${m.page}">
             <i class="nbar"></i>
-            <span class="tx"><span class="src">Страница ${m.page}</span>${b.pages > 0 ? `<span class="q">${Math.floor((m.page / b.pages) * 100)}% книги</span>` : ''}</span></button>`).join('')}
+            <span class="tx"><span class="src">Страница ${m.page}</span>${b.pages > 0 ? `<span class="q">${Math.floor((m.page / b.pages) * 100)}% книги</span>` : ''}</span></button>${rmBtn(b.id, 'bookmark', m.id)}</div>`).join('')}
+          ${clearBtn(b.bookmarks.map((m) => ({ book: b.id, kind: 'bookmark', id: m.id })), 'Удалить все закладки книги')}
         </details>`).join('')
         : '<div class="r-empty">Закладок пока нет.<br>Нажмите на ленточку в углу страницы в читалке.</div>';
+      if (nBm > 1) list += clearBtn(books.flatMap((b) => b.bookmarks.map((m) => ({ book: b.id, kind: 'bookmark', id: m.id }))), 'Удалить все закладки');
     }
     body.innerHTML = `<div class="tabs" role="tablist">${tab('highlights', 'Выделения', nHl)}${tab('bookmarks', 'Закладки', nBm)}</div>${list}`;
+  }
+
+  // убираем удалённое и из копии на устройстве, чтобы читалка не вернула это при открытии без интернета
+  function purgeLocalNotes(items) {
+    const byBook = new Map();
+    for (const it of items) {
+      if (!byBook.has(it.book)) byBook.set(it.book, new Set());
+      byBook.get(it.book).add(`${it.kind}:${it.id}`);
+    }
+    for (const [book, ids] of byBook) {
+      let a = null;
+      try { a = JSON.parse(lsGet(annKey(book)) || 'null'); } catch { /* повреждённая копия */ }
+      if (!a) continue;
+      if (Array.isArray(a.bookmarks)) a.bookmarks = a.bookmarks.filter((m) => !ids.has(`bookmark:${m.id}`));
+      if (Array.isArray(a.highlights)) a.highlights = a.highlights.filter((h) => !ids.has(`highlight:${h.id}`));
+      lsSet(annKey(book), JSON.stringify(a));
+    }
+  }
+
+  async function deleteNotes(items, confirmText) {
+    if (!items.length) return;
+    if (confirmText && !confirm(confirmText)) return;
+    try {
+      const res = await api('POST', '/api/my-annotations/delete', { items });
+      NOTES.books = res.books || [];
+      purgeLocalNotes(items);
+      renderNotes();
+      toast(items.length > 1 ? `Удалено: ${res.removed ?? items.length}` : 'Удалено');
+      if (state.route === 'profile') renderProfile(); // обновить счётчики
+    } catch (e) {
+      toast(e.message, true);
+    }
   }
 
   async function openNotes() {
@@ -1488,6 +1681,19 @@
   $('#notes-body').addEventListener('click', (e) => {
     const t = e.target.closest('[data-ntab]');
     if (t) { NOTES.tab = t.dataset.ntab; renderNotes(); return; }
+    const rm = e.target.closest('[data-nrm]');
+    if (rm) {
+      const [book, kind, ...id] = rm.dataset.nrm.split('|');
+      deleteNotes([{ book: Number(book), kind, id: id.join('|') }]);
+      return;
+    }
+    const clr = e.target.closest('[data-nclear]');
+    if (clr) {
+      const items = NOTES.sections?.[Number(clr.dataset.nclear)] || [];
+      const what = items[0]?.kind === 'bookmark' ? 'закладок' : 'выделений';
+      deleteNotes(items, `Удалить ${items.length} ${what}? Это нельзя отменить.`);
+      return;
+    }
     const it = e.target.closest('[data-nbook]');
     if (it) {
       closeModal($('#m-notes'));
@@ -1638,6 +1844,7 @@
       clearTimeout(R.readTimer);
       R.readTimer = setTimeout(recordReading, 15000); // страница открыта 15 секунд — тоже чтение
       annOpen(book);
+      startReadingBeat();
       if (state.me && off.ok && getSet('open', true) && netAllowed() && navigator.onLine && !isOffline(book)) setTimeout(() => downloadBook(book), 1500);
       if (state.me && !book.progress && session === R.session) { R.dirty = true; flushProgress(); } // книга сразу попадает в «Продолжить чтение»
     } catch (e) {
@@ -1662,6 +1869,7 @@
     if (reader.hidden) return;
     flushProgress();
     annPush(true);
+    stopReadingBeat();
     clearTimeout(R.readTimer);
     R.nav++;
     R.session++;
@@ -1983,6 +2191,32 @@
     R.dirty = true;
     clearTimeout(R.saveTimer);
     R.saveTimer = setTimeout(flushProgress, 700);
+  }
+
+  // «Читает сейчас»: пока книга открыта и вкладка на виду, раз в 45 секунд сообщаем серверу, какая книга открыта
+  let nowBeatTimer = 0;
+  function sendReadingNow(bookId) {
+    if (!state.me) return;
+    fetch('/api/reading-now', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({ book: bookId }),
+      keepalive: true,
+    }).catch(() => {});
+  }
+  function startReadingBeat() {
+    clearInterval(nowBeatTimer);
+    if (!R.book) return;
+    sendReadingNow(R.book.id);
+    nowBeatTimer = setInterval(() => {
+      if (R.book && !reader.hidden && !document.hidden) sendReadingNow(R.book.id);
+    }, 45000);
+  }
+  function stopReadingBeat() {
+    clearInterval(nowBeatTimer);
+    nowBeatTimer = 0;
+    sendReadingNow(0);
   }
 
   function flushProgress() {
@@ -2425,8 +2659,11 @@
 
   /* ---------- Кнопки и клавиши ---------- */
   window.addEventListener('popstate', () => { if (!reader.hidden) doCloseReader(); });
-  document.addEventListener('visibilitychange', () => { if (document.hidden) { flushProgress(); annPush(true); } });
-  window.addEventListener('pagehide', () => { flushProgress(); annPush(true); });
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) { flushProgress(); annPush(true); if (R.book) sendReadingNow(0); }
+    else if (R.book && !reader.hidden) sendReadingNow(R.book.id); // вернулся к книге — снова «читает»
+  });
+  window.addEventListener('pagehide', () => { flushProgress(); annPush(true); if (R.book) sendReadingNow(0); });
   window.addEventListener('online', () => annPush());
 
   $('#r-close').onclick = closeReader;

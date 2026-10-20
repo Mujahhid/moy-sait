@@ -1013,14 +1013,66 @@ main { position: relative; z-index: 0; isolation: isolate; max-width: var(--maxw
 .u-chip.dim { color: var(--muted); }
 .u-list h5 { margin: 0 0 6px; font-size: .78rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
 .u-list h5 span { color: var(--green); }
-.u-book { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 7px 0; border-bottom: 1px dashed var(--line); }
+.u-book { padding: 8px 0; border-bottom: 1px dashed var(--line); }
 .u-book:last-child { border-bottom: 0; }
+.ub-top { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
 .u-book b { min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
-.u-book span { flex: none; max-width: 48%; text-align: right; color: var(--muted); font-size: .82rem; }
+.u-book .ub-top span { flex: none; max-width: 48%; text-align: right; color: var(--muted); font-size: .82rem; }
+.u-book .bar { height: 5px; margin-top: 6px; }
+.u-book .bar > i { background: var(--green); }
+.u-book small { display: block; margin-top: 4px; color: var(--muted); font-size: .76rem; }
 @media (max-width: 560px) {
   .stats.four { grid-template-columns: repeat(2, 1fr); }
   .u-card summary { flex-wrap: wrap; }
   .u-nums { width: 100%; justify-content: space-around; padding-top: 8px; border-top: 1px dashed var(--line); }
-  .u-book { flex-direction: column; gap: 2px; }
-  .u-book span { max-width: none; text-align: left; }
+  .ub-top { flex-direction: column; gap: 2px; }
+  .u-book .ub-top span { max-width: none; text-align: left; }
+  .u-dev { flex-direction: column; gap: 2px; }
 }
+
+
+/* ---- профиль → «Закладки и выделения»: удаление ---- */
+.n-row { display: flex; align-items: stretch; border-top: 1px solid var(--line); }
+.n-row .n-item { flex: 1; min-width: 0; width: auto; border-top: 0; }
+.n-rm { flex: none; width: 46px; border: 0; border-left: 1px solid var(--line); background: transparent; color: var(--muted); font-size: 1rem; cursor: pointer; }
+.n-rm:hover, .n-rm:focus-visible { color: var(--danger); background: rgba(163, 55, 43, .1); }
+.n-foot { padding: 8px 14px 12px; border-top: 1px solid var(--line); }
+#notes-body > .n-foot { padding: 4px 0 12px; border-top: 0; }
+.n-clear { padding: 7px 12px; border: 1px solid color-mix(in srgb, var(--danger) 45%, transparent); border-radius: 10px; background: transparent; color: var(--danger); font: inherit; font-size: .85rem; cursor: pointer; }
+.n-clear:hover { background: rgba(163, 55, 43, .1); }
+
+/* ---- админ: «читает сейчас», аккаунт, устройства, история ---- */
+.badge.dim { background: var(--paper-2); color: var(--muted); }
+.u-now { flex: 1 0 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 10px 12px; border-radius: 12px; background: color-mix(in srgb, var(--green) 9%, transparent); }
+.u-now .pulse { flex: none; width: 9px; height: 9px; border-radius: 50%; background: #3fa66b; box-shadow: 0 0 0 0 rgba(63, 166, 107, .5); animation: u-pulse 1.8s infinite; }
+@keyframes u-pulse { 70% { box-shadow: 0 0 0 8px rgba(63, 166, 107, 0); } 100% { box-shadow: 0 0 0 0 rgba(63, 166, 107, 0); } }
+.u-now-tx { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.u-now .lbl { font-size: .7rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--green); }
+.u-now b { font-weight: 600; overflow-wrap: anywhere; }
+.u-now .pg { color: var(--muted); font-size: .85rem; }
+.u-now .bar { flex: 1 0 100%; height: 6px; margin: 0; }
+.u-now .bar > i { background: var(--green); }
+.u-acc { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid var(--line); border-radius: 14px; }
+.u-cred { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; }
+.u-cred span { min-width: 120px; color: var(--muted); font-size: .82rem; }
+.u-cred b { font-weight: 600; overflow-wrap: anywhere; }
+.u-cred small { flex: 1 0 100%; color: var(--muted); font-size: .76rem; }
+.u-actions, .u-edit-btns { display: flex; flex-wrap: wrap; gap: 8px; }
+.u-edit { display: flex; flex-direction: column; gap: 8px; padding: 10px; border-radius: 12px; background: var(--paper-2); }
+.u-edit label { display: flex; flex-direction: column; gap: 4px; font-size: .85rem; color: var(--muted); }
+.u-edit input { font: inherit; color: var(--ink); padding: 9px 11px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
+.u-edit .form-error { min-height: 0; margin: 0; }
+.u-notice { padding: 10px 12px; border-radius: 12px; background: color-mix(in srgb, var(--green) 12%, transparent); font-size: .9rem; }
+.u-pw { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 8px; }
+.u-pw code { padding: 6px 10px; border-radius: 8px; background: var(--card); font-size: 1.05rem; letter-spacing: .04em; user-select: all; }
+.u-dev { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 7px 0; border-bottom: 1px dashed var(--line); }
+.u-dev:last-child { border-bottom: 0; }
+.u-dev b { font-weight: 600; }
+.u-dev span { color: var(--muted); font-size: .82rem; text-align: right; }
+.u-hist { border: 1px solid var(--line); border-radius: 14px; padding: 0 12px; }
+.u-hist summary { padding: 11px 0; cursor: pointer; font-weight: 600; list-style: none; display: flex; align-items: center; gap: 8px; }
+.u-hist summary::-webkit-details-marker { display: none; }
+.u-hist summary::after { content: '▾'; margin-left: auto; color: var(--muted); transition: transform .15s; }
+.u-hist:not([open]) summary::after { transform: rotate(-90deg); }
+.u-hist summary span { color: var(--green); font-size: .85rem; }
+.u-hist[open] { padding-bottom: 6px; }

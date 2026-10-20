@@ -93,6 +93,14 @@ db.exec(`
   if (!cols.includes('best_streak')) db.exec('ALTER TABLE users ADD COLUMN best_streak INTEGER NOT NULL DEFAULT 0');
   if (!cols.includes('last_read_day')) db.exec("ALTER TABLE users ADD COLUMN last_read_day TEXT NOT NULL DEFAULT ''");
   if (!cols.includes('last_seen_at')) db.exec('ALTER TABLE users ADD COLUMN last_seen_at INTEGER NOT NULL DEFAULT 0');
+  // «читает прямо сейчас»: книга и время последнего сигнала от открытой читалки
+  if (!cols.includes('now_book_id')) db.exec('ALTER TABLE users ADD COLUMN now_book_id INTEGER NOT NULL DEFAULT 0');
+  if (!cols.includes('now_at')) db.exec('ALTER TABLE users ADD COLUMN now_at INTEGER NOT NULL DEFAULT 0');
+  // устройства: у каждой сессии запоминаем, с чего вошли и когда им пользовались
+  const sCols = db.prepare('PRAGMA table_info(sessions)').all().map((c) => c.name);
+  if (!sCols.includes('ua')) db.exec("ALTER TABLE sessions ADD COLUMN ua TEXT NOT NULL DEFAULT ''");
+  if (!sCols.includes('created_at')) db.exec('ALTER TABLE sessions ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0');
+  if (!sCols.includes('last_used_at')) db.exec('ALTER TABLE sessions ADD COLUMN last_used_at INTEGER NOT NULL DEFAULT 0');
 }
 
 const now = () => Date.now();
@@ -221,11 +229,46 @@ function sessionCookie(req, token, maxAgeSec) {
 
 function createSession(req, userId) {
   const token = crypto.randomBytes(32).toString('hex');
-  db.prepare('INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)').run(
-    token, userId, now() + SESSION_DAYS * 86400000
+  const t = now();
+  db.prepare('INSERT INTO sessions (token, user_id, expires_at, ua, created_at, last_used_at) VALUES (?, ?, ?, ?, ?, ?)').run(
+    token, userId, t + SESSION_DAYS * 86400000, String(req.headers['user-agent'] || '').slice(0, 300), t, t
   );
   return sessionCookie(req, token, SESSION_DAYS * 86400);
 }
+
+// Человеческое название устройства по User-Agent: «iPhone · Safari», «Windows · Chrome»
+function deviceLabel(ua) {
+  ua = String(ua || '');
+  if (!ua) return 'Неизвестное устройство';
+  let os = '';
+  if (/iPad/.test(ua)) os = 'iPad';
+  else if (/iPhone|iPod/.test(ua)) os = 'iPhone';
+  else if (/Android/.test(ua)) os = /Mobile/.test(ua) ? 'Android-телефон' : 'Android-планшет';
+  else if (/Windows/.test(ua)) os = 'Windows';
+  else if (/Macintosh|Mac OS X/.test(ua)) os = 'Mac';
+  else if (/CrOS/.test(ua)) os = 'ChromeOS';
+  else if (/Linux/.test(ua)) os = 'Linux';
+  let br = '';
+  if (/YaBrowser/.test(ua)) br = 'Яндекс Браузер';
+  else if (/Edg(e|A|iOS)?\//.test(ua)) br = 'Edge';
+  else if (/OPR\/|Opera/.test(ua)) br = 'Opera';
+  else if (/SamsungBrowser/.test(ua)) br = 'Samsung Internet';
+  else if (/Firefox|FxiOS/.test(ua)) br = 'Firefox';
+  else if (/Chrome|CriOS/.test(ua)) br = 'Chrome';
+  else if (/Safari/.test(ua)) br = 'Safari';
+  return [os, br].filter(Boolean).join(' · ') || 'Неизвестное устройство';
+}
+
+// время последнего использования устройства (сессии) — не чаще раза в минуту
+const sessSeen = new Map();
+function touchSession(token) {
+  if (!token) return;
+  const t = now();
+  if (t - (sessSeen.get(token) || 0) < 60000) return;
+  sessSeen.set(token, t);
+  db.prepare('UPDATE sessions SET last_used_at = ? WHERE token = ?').run(t, token);
+}
+setInterval(() => { if (sessSeen.size > 5000) sessSeen.clear(); }, 3600000).unref();
 
 function currentUser(req) {
   const token = parseCookies(req).sid;
@@ -1068,6 +1111,59 @@ route('PUT', '/api/annotations/:id', async (ctx) => {
   sendJson(ctx.res, 200, { ...data, updatedAt: t });
 });
 
+// Удаление закладок и выделений из профиля: {items: [{book, kind: 'bookmark' | 'highlight', id}]}.
+// Одним запросом можно убрать одну заметку, целую тему или всё сразу.
+route('POST', '/api/my-annotations/delete', async (ctx) => {
+  requireUser(ctx);
+  const body = await readJson(ctx.req, 1024 * 1024);
+  const items = Array.isArray(body.items) ? body.items.slice(0, 10000) : [];
+  const drop = new Map(); // book -> {bookmark: Set, highlight: Set}
+  for (const it of items) {
+    const book = Number(it?.book);
+    const kind = it?.kind === 'bookmark' || it?.kind === 'highlight' ? it.kind : '';
+    const id = String(it?.id ?? '');
+    if (!Number.isInteger(book) || !kind || !id) continue;
+    if (!drop.has(book)) drop.set(book, { bookmark: new Set(), highlight: new Set() });
+    drop.get(book)[kind].add(id);
+  }
+  let removed = 0;
+  const t = now();
+  const get = db.prepare('SELECT data FROM annotations WHERE user_id = ? AND book_id = ?');
+  const put = db.prepare('UPDATE annotations SET data = ?, updated_at = ? WHERE user_id = ? AND book_id = ?');
+  db.exec('BEGIN');
+  try {
+    for (const [book, sets] of drop) {
+      const row = get.get(ctx.user.id, book);
+      if (!row) continue;
+      let d;
+      try { d = JSON.parse(row.data); } catch { continue; }
+      const bms = Array.isArray(d.bookmarks) ? d.bookmarks : [];
+      const hls = Array.isArray(d.highlights) ? d.highlights : [];
+      const bms2 = bms.filter((b) => !sets.bookmark.has(String(b.id)));
+      const hls2 = hls.filter((h) => !sets.highlight.has(String(h.id)));
+      const n = bms.length - bms2.length + (hls.length - hls2.length);
+      if (!n) continue;
+      removed += n;
+      put.run(JSON.stringify({ ...d, bookmarks: bms2, highlights: hls2 }), t, ctx.user.id, book);
+    }
+    db.exec('COMMIT');
+  } catch (e) {
+    db.exec('ROLLBACK');
+    throw e;
+  }
+  sendJson(ctx.res, 200, { removed, books: allAnnotations(ctx.user.id) });
+});
+
+// --- «Читает прямо сейчас»: открытая читалка раз в минуту сообщает, какая книга открыта (book: 0 — закрыта)
+route('POST', '/api/reading-now', async (ctx) => {
+  requireUser(ctx);
+  const body = await readJson(ctx.req);
+  const id = Number(body.book) || 0;
+  if (id && !getBook(id)) throw new HttpError(404, 'Книга не найдена');
+  db.prepare('UPDATE users SET now_book_id = ?, now_at = ? WHERE id = ?').run(id, id ? now() : 0, ctx.user.id);
+  sendJson(ctx.res, 200, { ok: true });
+});
+
 // --- Резервная копия (только администратор): скачать одним файлом / восстановить из него
 route('GET', '/api/admin/backup', async (ctx) => {
   requireAdmin(ctx);
@@ -1114,7 +1210,14 @@ route('GET', '/api/admin/users', (ctx) => {
   requireAdmin(ctx);
   const t = now();
   const today = Math.floor(t / DAY_MS);
-  const users = db.prepare('SELECT id, nick, is_admin, created_at, streak, best_streak, last_read_day, last_seen_at FROM users').all();
+  const users = db.prepare('SELECT id, nick, is_admin, created_at, streak, best_streak, last_read_day, last_seen_at, now_book_id, now_at FROM users').all();
+  const devs = new Map();
+  for (const s of db.prepare('SELECT user_id, ua, created_at, last_used_at FROM sessions WHERE expires_at > ? ORDER BY last_used_at DESC, created_at DESC').all(t)) {
+    if (!devs.has(s.user_id)) devs.set(s.user_id, []);
+    devs.get(s.user_id).push({ label: deviceLabel(s.ua), createdAt: s.created_at || 0, lastUsedAt: s.last_used_at || 0 });
+  }
+  const NOW_MS = 150000; // сигнал читалки приходит раз в минуту; свежее 2,5 минут — человек читает сейчас
+  const pageOfBook = db.prepare('SELECT p.page, b.id, b.title, b.author, b.pages FROM books b LEFT JOIN progress p ON p.book_id = b.id AND p.user_id = ? WHERE b.id = ?');
   const bookInfo = (r) => ({ id: r.book_id, title: r.title, author: r.author, pages: r.pages });
   const byUser = new Map(users.map((u) => [u.id, { reading: [], finished: [], want: [], lastProgress: 0 }]));
   const prog = db.prepare(
@@ -1137,10 +1240,18 @@ route('GET', '/api/admin/users', (ctx) => {
     const o = byUser.get(u.id);
     const lastN = u.last_read_day ? dayNum(u.last_read_day) : -1e9;
     const alive = today - lastN <= 1; // читал сегодня или вчера — серия жива
+    let readingNow = null;
+    if (u.now_book_id && t - u.now_at < NOW_MS) {
+      const r = pageOfBook.get(u.id, u.now_book_id);
+      if (r) readingNow = { id: r.id, title: r.title, author: r.author, pages: r.pages, page: r.page || 1 };
+    }
     return {
       id: u.id,
       nick: u.nick,
       isAdmin: !!u.is_admin,
+      isMe: u.id === ctx.user.id,
+      devices: devs.get(u.id) || [],
+      readingNow,
       createdAt: u.created_at,
       lastSeenAt: u.last_seen_at || o.lastProgress || 0, // у старых аккаунтов времени входа нет — берём последнее чтение
       streak: alive ? u.streak : 0,
@@ -1152,6 +1263,54 @@ route('GET', '/api/admin/users', (ctx) => {
     };
   }).sort((a, b) => b.lastSeenAt - a.lastSeenAt);
   sendJson(ctx.res, 200, { users: out, serverTime: t }, { 'Cache-Control': 'no-store' });
+});
+
+// Управление аккаунтами (только администратор).
+// Пароли хранятся только в виде необратимого хэша, поэтому прочитать пароль нельзя — можно задать новый.
+const getUserOr404 = (id) => {
+  const u = db.prepare('SELECT * FROM users WHERE id = ?').get(Number(id));
+  if (!u) throw new HttpError(404, 'Пользователь не найден');
+  return u;
+};
+
+route('DELETE', '/api/admin/users/:id', (ctx) => {
+  requireAdmin(ctx);
+  const u = getUserOr404(ctx.params.id);
+  if (u.id === ctx.user.id) throw new HttpError(400, 'Нельзя удалить свой собственный аккаунт');
+  // закладки, выделения, прогресс, избранное и сессии удаляются каскадом
+  db.prepare('DELETE FROM users WHERE id = ?').run(u.id);
+  seenAt.delete(u.id);
+  sendJson(ctx.res, 200, { ok: true });
+});
+
+route('POST', '/api/admin/users/:id/password', async (ctx) => {
+  requireAdmin(ctx);
+  const u = getUserOr404(ctx.params.id);
+  const body = await readJson(ctx.req);
+  const password = String(body.password || '');
+  if (password.length < 6 || password.length > 200) throw new HttpError(400, 'Пароль должен быть не короче 6 символов');
+  const salt = crypto.randomBytes(16).toString('hex');
+  db.prepare('UPDATE users SET pass_hash = ?, salt = ? WHERE id = ?').run(hashPassword(password, salt), salt, u.id);
+  // со старым паролем войти уже нельзя — выходим со всех устройств (кроме текущего, если админ меняет себе)
+  if (u.id === ctx.user.id) db.prepare('DELETE FROM sessions WHERE user_id = ? AND token != ?').run(u.id, ctx.user.token);
+  else db.prepare('DELETE FROM sessions WHERE user_id = ?').run(u.id);
+  sendJson(ctx.res, 200, { ok: true });
+});
+
+route('POST', '/api/admin/users/:id/nick', async (ctx) => {
+  requireAdmin(ctx);
+  const u = getUserOr404(ctx.params.id);
+  const body = await readJson(ctx.req);
+  const nick = String(body.nick || '').trim();
+  if (!NICK_RE.test(nick)) throw new HttpError(400, 'Ник: 3–24 символа, только латиница, цифры и «_»');
+  const clash = db.prepare('SELECT id FROM users WHERE nick = ? AND id != ?').get(nick, u.id);
+  if (clash) throw new HttpError(409, 'Такой ник уже занят');
+  // вход под ADMIN_NICK автоматически даёт права администратора — не отдаём их через переименование
+  if (ADMIN_NICK && nick.toLowerCase() === ADMIN_NICK && u.nick.toLowerCase() !== ADMIN_NICK) {
+    throw new HttpError(400, 'Этот ник зарезервирован за администратором');
+  }
+  db.prepare('UPDATE users SET nick = ? WHERE id = ?').run(nick, u.id);
+  sendJson(ctx.res, 200, { ok: true, nick });
 });
 
 route('GET', '/healthz', (ctx) => {
@@ -1179,7 +1338,7 @@ async function handle(req, res) {
     const params = {};
     r.keys.forEach((k, i) => (params[k] = decodeURIComponent(m[i + 1])));
     const ctx = { req, res, params, query: url.searchParams, ip: clientIp(req), user: currentUser(req) };
-    if (url.pathname.startsWith('/api/')) touchSeen(ctx.user);
+    if (url.pathname.startsWith('/api/')) { touchSeen(ctx.user); touchSession(ctx.user?.token); }
     return r.handler(ctx);
   }
   const known = routes.some((r) => r.re.test(url.pathname));
