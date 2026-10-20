@@ -672,6 +672,8 @@
     maktabazalzalya: 'maktaba-zalzalya', maktabatuzalzalya: 'maktaba-zalzalya', zalzalya: 'maktaba-zalzalya',
     asaribnabbas: 'asar-ibn-abbas',
     rayhan: 'rayhan', райхан: 'rayhan',
+    rushd: 'rushd', рушд: 'rushd',
+    abusolikh: 'abu-solikh', abusolih: 'abu-solikh', abusalih: 'abu-solikh', абусолих: 'abu-solikh', абусалих: 'abu-solikh',
   };
   const pubLogo = (name) => PUB_LOGOS[String(name).toLowerCase().replace(/[^a-zа-яё0-9]/g, '')];
   const pubIcon = (name) => {
