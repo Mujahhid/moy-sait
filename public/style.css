@@ -928,6 +928,8 @@ main { position: relative; z-index: 0; isolation: isolate; max-width: var(--maxw
   display: flex; flex-direction: column; gap: 2px; animation: tip-in .12s ease both;
 }
 .book-tip[hidden] { display: none; }
+/* на сенсорных экранах долгое нажатие не должно вызывать меню/выделение системы */
+[data-tip] { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
 .book-tip b { font: 600 1rem/1.25 var(--font-display); overflow-wrap: anywhere; }
 .book-tip span { opacity: .75; font-size: .82rem; }
 @keyframes tip-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }

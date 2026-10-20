@@ -545,6 +545,51 @@
     tipTimer = setTimeout(() => { if (tipTarget === el && el.isConnected) showTip(el); }, 180);
   });
   document.addEventListener('pointerdown', hideTip, true);
+
+  // телефон и планшет: долгое нажатие на книгу показывает ту же плашку (название и число страниц)
+  const LONG_PRESS_MS = 450;
+  const LONG_PRESS_SLOP = 10; // сдвиг пальца больше этого — это прокрутка, а не долгое нажатие
+  let pressTimer = 0;
+  let pressStart = null;
+  let lastLongPressAt = 0;
+  let tipHideTimer = 0;
+  const cancelPress = () => { clearTimeout(pressTimer); pressTimer = 0; pressStart = null; };
+  document.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'mouse') return;
+    cancelPress();
+    const el = e.target.closest?.('[data-tip]');
+    if (!el || !view.contains(el)) return;
+    pressStart = { x: e.clientX, y: e.clientY };
+    pressTimer = setTimeout(() => {
+      pressTimer = 0;
+      if (!el.isConnected) return;
+      lastLongPressAt = Date.now();
+      tipTarget = el;
+      showTip(el);
+      clearTimeout(tipHideTimer);
+      tipHideTimer = setTimeout(() => { if (tipTarget === el) hideTip(); }, 4000);
+      if (navigator.vibrate) navigator.vibrate(12);
+    }, LONG_PRESS_MS);
+  }, true);
+  document.addEventListener('pointermove', (e) => {
+    if (!pressStart || e.pointerType === 'mouse') return;
+    if (Math.hypot(e.clientX - pressStart.x, e.clientY - pressStart.y) > LONG_PRESS_SLOP) cancelPress();
+  }, true);
+  ['pointerup', 'pointercancel'].forEach((t) => document.addEventListener(t, cancelPress, true));
+  // после долгого нажатия отпускание пальца даёт клик: гасим его, чтобы книга не открылась
+  document.addEventListener('click', (e) => {
+    if (Date.now() - lastLongPressAt > 900) return;
+    if (!e.target.closest?.('[data-tip]')) return;
+    lastLongPressAt = 0;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+  }, true);
+  // Android показывает системное меню при долгом нажатии на книгу — не нужно
+  document.addEventListener('contextmenu', (e) => {
+    if (e.target.closest?.('[data-tip]') && view.contains(e.target) && !matchMedia('(hover: hover) and (pointer: fine)').matches) e.preventDefault();
+  });
+
+  // прокрутка прячет плашку, кроме момента, пока палец ещё держит книгу
   document.addEventListener('scroll', hideTip, true);
   window.addEventListener('blur', hideTip);
   document.addEventListener('keydown', hideTip, true);
