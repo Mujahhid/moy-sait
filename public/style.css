@@ -1076,3 +1076,7 @@ main { position: relative; z-index: 0; isolation: isolate; max-width: var(--maxw
 .u-hist:not([open]) summary::after { transform: rotate(-90deg); }
 .u-hist summary span { color: var(--green); font-size: .85rem; }
 .u-hist[open] { padding-bottom: 6px; }
+/* не читает прямо сейчас: показываем последнее чтение без «живой» точки */
+.u-now.last { background: var(--paper-2); }
+.u-now.last .pulse { display: none; }
+.u-now.last .lbl { color: var(--muted); }

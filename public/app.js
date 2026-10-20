@@ -997,12 +997,15 @@
   }
 
   // «Что читал раньше» — сворачивается, открывается нажатием
-  function userHistory(u, nowMs) {
-    const items = [
-      ...u.reading.map((b) => ({ b, kind: 'reading' })),
-      ...u.finished.map((b) => ({ b, kind: 'done' })),
-    ].sort((x, y) => y.b.updatedAt - x.b.updatedAt);
-    if (!items.length) return '<p class="muted small">Пока не открывал книги.</p>';
+  const userAllBooks = (u) => [
+    ...u.reading.map((b) => ({ b, kind: 'reading' })),
+    ...u.finished.map((b) => ({ b, kind: 'done' })),
+  ].sort((x, y) => y.b.updatedAt - x.b.updatedAt);
+
+  // exceptId — книга, которая уже показана сверху («читает сейчас» или «последнее чтение»)
+  function userHistory(u, nowMs, exceptId) {
+    const items = userAllBooks(u).filter((x) => x.b.id !== exceptId);
+    if (!items.length) return exceptId ? '' : '<p class="muted small">Пока не открывал книги.</p>';
     return `<details class="u-hist" data-hist="${u.id}" ${USERS.hist.has(u.id) ? 'open' : ''}>
       <summary>Что читал раньше <span>${items.length}</span></summary>
       ${items.map((x) => userBookRow(x.b, x.kind, nowMs)).join('')}
@@ -1052,13 +1055,17 @@
     const streakTxt = u.streak > 0
       ? `<span class="u-chip fire">${FLAME_SVG}${u.streak} ${daysWord(u.streak)} подряд</span>`
       : `<span class="u-chip dim">серии нет${u.bestStreak ? ` · рекорд ${u.bestStreak}` : ''}</span>`;
-    const now = u.readingNow;
-    const nowP = now ? pctOf(now) : null;
-    const nowHtml = now
-      ? `<div class="u-now"><i class="pulse"></i><div class="u-now-tx"><span class="lbl">Читает сейчас</span>
-          <b dir="auto">${esc(now.title)}</b>
-          <span class="pg">${esc(pageText(now))}${nowP != null ? ` · ${nowP}%` : ''}</span></div>
-          ${nowP != null ? `<div class="bar"><i style="width:${nowP}%"></i></div>` : ''}</div>`
+    // сверху: что читает прямо сейчас, а если не читает — что читал последним; всё остальное — в «Что читал раньше»
+    const live = u.readingNow;
+    const lastItem = live ? null : userAllBooks(u)[0] || null;
+    const top = live || lastItem?.b || null;
+    const topDone = !live && lastItem?.kind === 'done';
+    const topP = top ? (topDone ? 100 : pctOf(top)) : null;
+    const nowHtml = top
+      ? `<div class="u-now ${live ? '' : 'last'}"><i class="pulse"></i><div class="u-now-tx"><span class="lbl">${live ? 'Читает сейчас' : topDone ? 'Последнее: прочитана' : 'Читал последним'}</span>
+          <b dir="auto">${esc(top.title)}</b>
+          <span class="pg">${topDone ? 'прочитана · 100%' : `${esc(pageText(top))}${topP != null ? ` · ${topP}%` : ''}`}${live ? '' : ` · ${esc(agoText(top.updatedAt, nowMs))}`}</span></div>
+          ${topP != null ? `<div class="bar"><i style="width:${topP}%"></i></div>` : ''}</div>`
       : '';
     return `<details class="u-card" data-uid="${u.id}" ${open ? 'open' : ''}>
       <summary>
@@ -1083,7 +1090,7 @@
         </div>
         ${userAccount(u)}
         ${userDevices(u)}
-        ${userHistory(u, nowMs)}
+        ${userHistory(u, nowMs, top?.id)}
         ${userWantList(u.want)}
       </div>
     </details>`;
