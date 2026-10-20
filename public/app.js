@@ -1063,9 +1063,8 @@
     const topP = top ? (topDone ? 100 : pctOf(top)) : null;
     const nowHtml = top
       ? `<div class="u-now ${live ? '' : 'last'}"><i class="pulse"></i><div class="u-now-tx"><span class="lbl">${live ? 'Читает сейчас' : topDone ? 'Последнее: прочитана' : 'Читал последним'}</span>
-          <b dir="auto">${esc(top.title)}</b>
-          <span class="pg">${topDone ? 'прочитана · 100%' : `${esc(pageText(top))}${topP != null ? ` · ${topP}%` : ''}`}${live ? '' : ` · ${esc(agoText(top.updatedAt, nowMs))}`}</span></div>
-          ${topP != null ? `<div class="bar"><i style="width:${topP}%"></i></div>` : ''}</div>`
+          <b dir="auto">${esc(top.title)}</b></div>
+          <div class="u-prog"><i style="--p:${topP ?? 0}%"></i><span>${topDone ? 'прочитана · 100%' : `${esc(pageText(top))}${topP != null ? ` · ${topP}%` : ''}`}${live ? '' : ` · ${esc(agoText(top.updatedAt, nowMs))}`}</span></div></div>`
       : '';
     return `<details class="u-card" data-uid="${u.id}" ${open ? 'open' : ''}>
       <summary>
