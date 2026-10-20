@@ -1079,9 +1079,9 @@
           <span title="Прочитал"><b>${u.finished.length}</b>прочитал</span>
           <span title="Хочет прочитать"><b>${u.want.length}</b>хочет</span>
         </div>
-        ${nowHtml}
       </summary>
       <div class="u-body">
+        ${nowHtml}
         <div class="u-facts">
           ${streakTxt}
           ${u.streak > 0 && u.bestStreak > u.streak ? `<span class="u-chip dim">рекорд ${u.bestStreak}</span>` : ''}

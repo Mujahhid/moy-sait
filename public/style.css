@@ -1080,3 +1080,4 @@ main { position: relative; z-index: 0; isolation: isolate; max-width: var(--maxw
 .u-now.last { background: var(--paper-2); }
 .u-now.last .pulse { display: none; }
 .u-now.last .lbl { color: var(--muted); }
+.u-body .u-now { flex: none; margin-top: 12px; }
