@@ -675,6 +675,10 @@
     daura: 'daura', даура: 'daura',
     ahluasar: 'ahlu-al-asar', ahlualasar: 'ahlu-al-asar', ahlulasar: 'ahlu-al-asar', ахлуасар: 'ahlu-al-asar', ахлуальасар: 'ahlu-al-asar', ахлюасар: 'ahlu-al-asar',
     baytalmagrifa: 'bayt-al-magrifa', baytalmarifa: 'bayt-al-magrifa', baytulmagrifa: 'bayt-al-magrifa', baytalmagrifah: 'bayt-al-magrifa', байтальмагрифа: 'bayt-al-magrifa', байтальмарифа: 'bayt-al-magrifa',
+    minhajsunna: 'minhaj-sunna', minhajsunnah: 'minhaj-sunna', mihnajsunna: 'minhaj-sunna', minhajassunna: 'minhaj-sunna', minhajussunna: 'minhaj-sunna',
+    минхаджсунна: 'minhaj-sunna', минхаджсунны: 'minhaj-sunna', минхаджассунна: 'minhaj-sunna',
+    tullabalharamayn: 'tullab-al-haramayn', tullabulharamayn: 'tullab-al-haramayn', tullabalharamain: 'tullab-al-haramayn', tullabharamayn: 'tullab-al-haramayn',
+    туллабальхарамайн: 'tullab-al-haramayn', туллабульхарамайн: 'tullab-al-haramayn', туллабальхарамаин: 'tullab-al-haramayn',
     rushd: 'rushd', рушд: 'rushd',
     abusolikh: 'abu-solikh', abusolih: 'abu-solikh', abusalih: 'abu-solikh', абусолих: 'abu-solikh', абусалих: 'abu-solikh',
   };
@@ -1250,6 +1254,33 @@
            <a class="btn ghost" href="#catalog">Перейти в библиотеку</a></div>`}`;
     $$('[data-mytab]', view).forEach((t) => (t.onclick = () => { MYBOOKS.tab = t.dataset.mytab; renderFavorites(); }));
     initShelves();
+  }
+
+  /* ================= Верхнее меню на компьютере: не наезжает на название и кнопки справа ================= */
+  {
+    const tabbar = $('.tabbar');
+    const brand = $('.brand');
+    const actions = $('.top-actions');
+    const placeTabbar = () => {
+      if (!tabbar || !brand || !actions) return;
+      if (window.innerWidth < 900) { tabbar.style.left = ''; tabbar.style.transform = ''; return; } // телефон и планшет: панель внизу
+      tabbar.style.transform = 'none';
+      tabbar.style.left = '0px'; // сначала измеряем естественную ширину
+      const w = tabbar.offsetWidth;
+      const minLeft = brand.getBoundingClientRect().right + 16;
+      const maxLeft = actions.getBoundingClientRect().left - 16 - w;
+      let left = window.innerWidth / 2 - w / 2; // по умолчанию — по центру окна
+      left = Math.min(left, maxLeft);
+      left = Math.max(left, minLeft);
+      tabbar.style.left = `${Math.round(left)}px`;
+    };
+    window.addEventListener('resize', placeTabbar);
+    if (window.ResizeObserver) {
+      const ro = new ResizeObserver(placeTabbar); // меняется ширина названия (шрифты), кнопок справа (огонёк, «скачанные»)
+      [brand, actions, tabbar].forEach((el) => el && ro.observe(el));
+    }
+    document.fonts?.ready.then(placeTabbar);
+    placeTabbar();
   }
 
   /* ================= Делегирование кликов ================= */
