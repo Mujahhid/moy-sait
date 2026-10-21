@@ -672,6 +672,9 @@
     maktabazalzalya: 'maktaba-zalzalya', maktabatuzalzalya: 'maktaba-zalzalya', zalzalya: 'maktaba-zalzalya',
     asaribnabbas: 'asar-ibn-abbas',
     rayhan: 'rayhan', райхан: 'rayhan',
+    daura: 'daura', даура: 'daura',
+    ahluasar: 'ahlu-al-asar', ahlualasar: 'ahlu-al-asar', ahlulasar: 'ahlu-al-asar', ахлуасар: 'ahlu-al-asar', ахлуальасар: 'ahlu-al-asar', ахлюасар: 'ahlu-al-asar',
+    baytalmagrifa: 'bayt-al-magrifa', baytalmarifa: 'bayt-al-magrifa', baytulmagrifa: 'bayt-al-magrifa', baytalmagrifah: 'bayt-al-magrifa', байтальмагрифа: 'bayt-al-magrifa', байтальмарифа: 'bayt-al-magrifa',
     rushd: 'rushd', рушд: 'rushd',
     abusolikh: 'abu-solikh', abusolih: 'abu-solikh', abusalih: 'abu-solikh', абусолих: 'abu-solikh', абусалих: 'abu-solikh',
   };
