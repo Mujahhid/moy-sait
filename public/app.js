@@ -1049,6 +1049,7 @@
     }
     return `<div class="u-acc">
       <div class="u-cred"><span>Логин (он же ник)</span><b dir="ltr">${esc(u.nick)}</b></div>
+      <div class="u-cred"><span>Телефон</span><b dir="ltr">${u.phone ? esc(u.phone) : 'не указан'}</b></div>
       <div class="u-cred"><span>Пароль</span><b>скрыт</b><small>Пароли хранятся в зашифрованном виде: прочитать их нельзя, можно задать новый.</small></div>
       ${notice ? `<div class="u-notice">${esc(notice.text)}${notice.password ? `<div class="u-pw"><code>${esc(notice.password)}</code><button type="button" class="btn ghost small" data-uact="copy" data-pw="${esc(notice.password)}">Копировать</button></div>` : ''}</div>` : ''}
       ${form}
@@ -1078,7 +1079,7 @@
       : '';
     return `<details class="u-card" data-uid="${u.id}" ${open ? 'open' : ''}>
       <summary>
-        <div class="avatar sm">${esc(u.nick[0])}</div>
+        ${avatarHtml(u, 'sm')}
         <div class="u-main">
           <div class="u-name"><b>${esc(u.nick)}</b>${u.isAdmin ? '<span class="badge">админ</span>' : ''}${u.isMe ? '<span class="badge dim">это вы</span>' : ''}</div>
           <div class="u-seen ${online ? 'on' : ''}"><i></i>${esc(lastSeenText(u.lastSeenAt, nowMs))}</div>
@@ -1487,13 +1488,14 @@
       <div class="page-head"><h1 class="page-title">Профиль</h1></div>
       <div class="profile-page">
       <div class="profile-head">
-        <div class="avatar">${esc(state.me.nick[0])}</div>
+        ${avatarHtml(state.me)}
         <div><b>${esc(state.me.nick)}</b>${state.me.isAdmin ? '<span class="badge">админ</span>' : ''}
+          ${state.me.phone ? `<div class="muted small" dir="ltr">${esc(state.me.phone)}</div>` : ''}
           ${since ? `<div class="muted small">С нами с ${esc(since)} г.</div>` : ''}
           <div class="muted small">Прогресс чтения хранится в аккаунте</div></div>
       </div>
       <div class="profile-actions top">
-        <button type="button" class="btn ghost" id="p-pass">Сменить пароль</button>
+        <button type="button" class="btn ghost" id="p-edit">Редактировать профиль</button>
         <a class="btn ghost" href="#offline">Скачанные книги</a>
         <a class="btn ghost" href="#favorites">Мои книги</a>
         <button type="button" class="btn ghost" id="p-logout">Выйти</button>
@@ -1514,12 +1516,6 @@
           <span class="sub">${b.pages > 0 ? `стр. ${b.progress.page} из ${b.pages}` : `стр. ${b.progress.page}`}</span></span>
         </button>`).join('')}</div>` : ''}
       ${state.me.isAdmin ? '<div class="profile-actions"><button type="button" class="btn primary" id="p-manage">Управление библиотекой</button><a class="btn primary" href="#users">Пользователи</a></div>' : ''}
-      <form class="pw-form" id="pw-form" hidden>
-        <label class="field">Текущий пароль<input name="old" type="password" autocomplete="current-password" required></label>
-        <label class="field">Новый пароль (от 6 символов)<input name="new" type="password" autocomplete="new-password" minlength="6" required></label>
-        <p class="form-error" id="pw-error"></p><p class="ok-msg" id="pw-ok"></p>
-        <button class="btn primary" type="submit">Сохранить пароль</button>
-      </form>
       </div>`;
 
     $$('[data-continue]', body).forEach((b) => (b.onclick = () => {
@@ -1528,7 +1524,7 @@
     $('#p-notes').onclick = () => openNotes();
     const pm = $('#p-manage');
     if (pm) pm.onclick = () => openManage();
-    $('#p-pass').onclick = () => { $('#pw-form').hidden = !$('#pw-form').hidden; };
+    $('#p-edit').onclick = () => openEditProfile();
     $('#p-logout').onclick = async () => {
       try { await api('POST', '/api/logout'); } catch { /* всё равно выходим */ }
       state.me = null;
@@ -1538,19 +1534,150 @@
       history.replaceState(null, '', '#home');
       render();
     };
-    $('#pw-form').addEventListener('submit', async (ev) => {
+  }
+
+  /* ================= Редактирование профиля: аватарка, ник, пароль, номер ================= */
+  // кружок с фото; пока фото грузится (или если его нет) видна первая буква ника
+  function avatarHtml(u, cls = '') {
+    const img = u.avatarVer ? `<img src="/api/avatar/${u.id}?v=${u.avatarVer}" alt="" draggable="false">` : '';
+    return `<div class="avatar ${cls}">${esc(String(u.nick || '?')[0])}${img}</div>`;
+  }
+  // не загрузилось фото — убираем картинку, остаётся буква
+  document.addEventListener('error', (e) => { if (e.target.matches?.('.avatar > img')) e.target.remove(); }, true);
+
+  // фото с телефона — большое: обрезаем по центру до квадрата и сжимаем до 320×320 JPEG
+  async function avatarBlob(file) {
+    let src;
+    try { src = await createImageBitmap(file, { imageOrientation: 'from-image' }); }
+    catch {
+      src = await new Promise((resolve, reject) => {
+        const url = URL.createObjectURL(file);
+        const im = new Image();
+        im.onload = () => { URL.revokeObjectURL(url); resolve(im); };
+        im.onerror = () => { URL.revokeObjectURL(url); reject(new Error('bad')); };
+        im.src = url;
+      }).catch(() => null);
+    }
+    if (!src) throw new Error('Не удалось открыть картинку. Выберите фото в формате JPG, PNG или WebP.');
+    const w = src.width || src.naturalWidth;
+    const h = src.height || src.naturalHeight;
+    const side = Math.min(w, h);
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 320;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, 320, 320);
+    ctx.drawImage(src, (w - side) / 2, (h - side) / 2, side, side, 0, 0, 320, 320);
+    if (src.close) src.close();
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.88));
+    if (!blob) throw new Error('Не удалось подготовить фото');
+    return blob;
+  }
+
+  function openEditProfile() {
+    const me = state.me;
+    $('#prof-body').innerHTML = `
+      <div class="pe-ava" id="pe-ava"></div>
+      <div class="pe-sec">
+        <h4>Аккаунт</h4>
+        <label class="field">Ник (он же логин для входа)<input value="${esc(me.nick)}" readonly dir="ltr"></label>
+        <p class="muted small pe-note">Ник может изменить администратор библиотеки.</p>
+        <div class="field">Пароль
+          <div class="pe-pass"><input value="••••••••" readonly aria-label="Пароль скрыт" tabindex="-1"><button type="button" class="btn ghost small" id="pe-pass-btn">Сменить</button></div>
+        </div>
+        <p class="muted small pe-note">Пароль хранится в зашифрованном виде, поэтому показать его нельзя, но можно задать новый.</p>
+        <form id="pe-pw-form" hidden>
+          <label class="field">Текущий пароль<input name="old" type="password" autocomplete="current-password" required></label>
+          <label class="field">Новый пароль (от 6 символов)<input name="new" type="password" autocomplete="new-password" minlength="6" required></label>
+          <label class="field">Новый пароль ещё раз<input name="again" type="password" autocomplete="new-password" minlength="6" required></label>
+          <p class="form-error" id="pe-pw-err"></p>
+          <button class="btn primary" type="submit">Сохранить пароль</button>
+        </form>
+        <p class="ok-msg" id="pe-pw-ok"></p>
+      </div>
+      <form class="pe-sec" id="pe-phone-form">
+        <h4>Номер телефона</h4>
+        <label class="field">Телефон<input name="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="+7 900 000-00-00" maxlength="24" value="${esc(me.phone || '')}" dir="ltr"></label>
+        <p class="muted small pe-note">Виден только вам и администратору библиотеки. Можно оставить пустым.</p>
+        <p class="form-error" id="pe-phone-err"></p><p class="ok-msg" id="pe-phone-ok"></p>
+        <button class="btn primary" type="submit">Сохранить номер</button>
+      </form>`;
+
+    // аватарка: выбрал фото — сразу сохраняется
+    const paintAva = () => {
+      $('#pe-ava').innerHTML = `${avatarHtml(state.me, 'lg')}
+        <div class="pe-ava-btns">
+          <label class="btn ghost small pe-file">${state.me.avatarVer ? 'Заменить фото' : 'Загрузить фото'}<input type="file" id="pe-file" accept="image/*" hidden></label>
+          ${state.me.avatarVer ? '<button type="button" class="btn ghost small" id="pe-ava-del">Удалить фото</button>' : ''}
+        </div><p class="form-error" id="pe-ava-err"></p>`;
+      $('#pe-file').onchange = async (ev) => {
+        const file = ev.target.files?.[0];
+        ev.target.value = '';
+        if (!file) return;
+        $('#pe-ava-err').textContent = '';
+        try {
+          const blob = await avatarBlob(file);
+          const res = await fetch('/api/avatar', { method: 'PUT', headers: { 'Content-Type': 'image/jpeg' }, credentials: 'same-origin', body: blob });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(data.error || 'Не удалось сохранить фото');
+          state.me.avatarVer = data.avatarVer;
+          paintAva();
+          if (state.route === 'profile') renderProfile();
+          toast('Фото обновлено');
+        } catch (err) {
+          $('#pe-ava-err').textContent = err.message === 'Failed to fetch' ? 'Нет связи с сервером' : err.message;
+        }
+      };
+      const del = $('#pe-ava-del');
+      if (del) del.onclick = async () => {
+        try {
+          await api('DELETE', '/api/avatar');
+          state.me.avatarVer = 0;
+          paintAva();
+          if (state.route === 'profile') renderProfile();
+          toast('Фото удалено');
+        } catch (err) { $('#pe-ava-err').textContent = err.message; }
+      };
+    };
+    paintAva();
+
+    $('#pe-pass-btn').onclick = () => {
+      const f = $('#pe-pw-form');
+      f.hidden = !f.hidden;
+      $('#pe-pw-ok').textContent = '';
+      if (!f.hidden) f.old.focus();
+    };
+    $('#pe-pw-form').addEventListener('submit', async (ev) => {
       ev.preventDefault();
       const f = ev.currentTarget;
-      $('#pw-error').textContent = '';
-      $('#pw-ok').textContent = '';
+      const err = $('#pe-pw-err');
+      err.textContent = '';
+      if (f.new.value !== f.again.value) { err.textContent = 'Новые пароли не совпадают'; return; }
       try {
         await api('POST', '/api/password', { oldPassword: f.old.value, newPassword: f.new.value });
         f.reset();
-        $('#pw-ok').textContent = 'Пароль изменён. На других устройствах потребуется войти заново.';
-      } catch (err) {
-        $('#pw-error').textContent = err.message;
+        f.hidden = true;
+        $('#pe-pw-ok').textContent = 'Пароль изменён. На других устройствах потребуется войти заново.';
+      } catch (e) {
+        err.textContent = e.message;
       }
     });
+    $('#pe-phone-form').addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const f = ev.currentTarget;
+      $('#pe-phone-err').textContent = '';
+      $('#pe-phone-ok').textContent = '';
+      try {
+        const res = await api('PUT', '/api/profile', { phone: f.phone.value });
+        state.me.phone = res.phone;
+        f.phone.value = res.phone;
+        $('#pe-phone-ok').textContent = res.phone ? 'Номер сохранён.' : 'Номер удалён.';
+        if (state.route === 'profile') renderProfile();
+      } catch (e) {
+        $('#pe-phone-err').textContent = e.message;
+      }
+    });
+    openModal('m-profile');
   }
 
   /* ================= Серия чтения («огонёк») ================= */

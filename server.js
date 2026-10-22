@@ -93,6 +93,9 @@ db.exec(`
   if (!cols.includes('best_streak')) db.exec('ALTER TABLE users ADD COLUMN best_streak INTEGER NOT NULL DEFAULT 0');
   if (!cols.includes('last_read_day')) db.exec("ALTER TABLE users ADD COLUMN last_read_day TEXT NOT NULL DEFAULT ''");
   if (!cols.includes('last_seen_at')) db.exec('ALTER TABLE users ADD COLUMN last_seen_at INTEGER NOT NULL DEFAULT 0');
+  // профиль: номер телефона и версия аватарки (0 — аватарки нет; меняется при каждой загрузке, чтобы браузер не держал старую)
+  if (!cols.includes('phone')) db.exec("ALTER TABLE users ADD COLUMN phone TEXT NOT NULL DEFAULT ''");
+  if (!cols.includes('avatar_ver')) db.exec('ALTER TABLE users ADD COLUMN avatar_ver INTEGER NOT NULL DEFAULT 0');
   // «читает прямо сейчас»: книга и время последнего сигнала от открытой читалки
   if (!cols.includes('now_book_id')) db.exec('ALTER TABLE users ADD COLUMN now_book_id INTEGER NOT NULL DEFAULT 0');
   if (!cols.includes('now_at')) db.exec('ALTER TABLE users ADD COLUMN now_at INTEGER NOT NULL DEFAULT 0');
@@ -275,7 +278,7 @@ function currentUser(req) {
   if (!token) return null;
   const row = db
     .prepare(
-      `SELECT u.id, u.nick, u.is_admin, s.expires_at FROM sessions s
+      `SELECT u.id, u.nick, u.is_admin, u.phone, u.avatar_ver, s.expires_at FROM sessions s
        JOIN users u ON u.id = s.user_id WHERE s.token = ?`
     )
     .get(token);
@@ -284,7 +287,7 @@ function currentUser(req) {
     db.prepare('DELETE FROM sessions WHERE token = ?').run(token);
     return null;
   }
-  return { id: row.id, nick: row.nick, isAdmin: !!row.is_admin, token };
+  return { id: row.id, nick: row.nick, isAdmin: !!row.is_admin, phone: row.phone || '', avatarVer: row.avatar_ver || 0, token };
 }
 
 // «Был в сети»: любой запрос вошедшего пользователя к API обновляет время, но не чаще раза в минуту
@@ -721,7 +724,7 @@ route('POST', '/api/register', async (ctx) => {
     .run(nick, hashPassword(password, salt), salt, isAdmin, now());
   const id = Number(info.lastInsertRowid);
   touchSeen({ id });
-  sendJson(ctx.res, 200, { user: { id, nick, isAdmin: !!isAdmin } }, { 'Set-Cookie': createSession(ctx.req, id) });
+  sendJson(ctx.res, 200, { user: { id, nick, isAdmin: !!isAdmin, phone: '', avatarVer: 0 } }, { 'Set-Cookie': createSession(ctx.req, id) });
 });
 
 route('POST', '/api/login', async (ctx) => {
@@ -738,7 +741,7 @@ route('POST', '/api/login', async (ctx) => {
   touchSeen({ id: u.id });
   sendJson(
     ctx.res, 200,
-    { user: { id: u.id, nick: u.nick, isAdmin: !!u.is_admin } },
+    { user: { id: u.id, nick: u.nick, isAdmin: !!u.is_admin, phone: u.phone || '', avatarVer: u.avatar_ver || 0 } },
     { 'Set-Cookie': createSession(ctx.req, u.id) }
   );
 });
@@ -751,8 +754,8 @@ route('POST', '/api/logout', (ctx) => {
 route('GET', '/api/me', (ctx) => {
   const registration = REGISTRATION_OPEN;
   if (!ctx.user) return sendJson(ctx.res, 200, { user: null, registration });
-  const { id, nick, isAdmin } = ctx.user;
-  sendJson(ctx.res, 200, { user: { id, nick, isAdmin }, registration });
+  const { id, nick, isAdmin, phone, avatarVer } = ctx.user;
+  sendJson(ctx.res, 200, { user: { id, nick, isAdmin, phone, avatarVer }, registration });
 });
 
 route('POST', '/api/password', async (ctx) => {
@@ -767,6 +770,72 @@ route('POST', '/api/password', async (ctx) => {
   db.prepare('UPDATE users SET pass_hash = ?, salt = ? WHERE id = ?').run(hashPassword(newPass, salt), salt, u.id);
   db.prepare('DELETE FROM sessions WHERE user_id = ? AND token != ?').run(u.id, ctx.user.token); // другие устройства — выйти
   sendJson(ctx.res, 200, { ok: true });
+});
+
+// --- Профиль: номер телефона и аватарка
+const AVATAR_MAX = 1024 * 1024;
+const avatarFile = (id) => path.join(UPLOAD_DIR, `avatar-${Number(id)}.jpg`); // файлы лежат прямо в uploads/, чтобы попадать в резервную копию
+
+function readBody(req, limit) {
+  return new Promise((resolve, reject) => {
+    let size = 0;
+    const chunks = [];
+    req.on('data', (c) => {
+      size += c.length;
+      if (size > limit) {
+        if (!chunks.length) return; // уже отказали
+        chunks.length = 0;
+        reject(new HttpError(413, 'Файл слишком большой'));
+        return; // остаток просто сбрасываем, чтобы ответ с ошибкой дошёл до браузера
+      }
+      chunks.push(c);
+    });
+    req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('error', reject);
+  });
+}
+
+route('PUT', '/api/profile', async (ctx) => {
+  requireUser(ctx);
+  const body = await readJson(ctx.req);
+  const raw = String(body.phone ?? '').trim();
+  const phone = raw.replace(/[\s().-]/g, '');
+  if (phone && !/^\+?\d{10,15}$/.test(phone)) {
+    throw new HttpError(400, 'Номер телефона: от 10 до 15 цифр, можно с «+» в начале');
+  }
+  db.prepare('UPDATE users SET phone = ? WHERE id = ?').run(phone, ctx.user.id);
+  sendJson(ctx.res, 200, { phone });
+});
+
+route('PUT', '/api/avatar', async (ctx) => {
+  requireUser(ctx);
+  const buf = await readBody(ctx.req, AVATAR_MAX);
+  // принимаем только настоящий JPEG (браузер сам сжимает фото до квадрата перед отправкой)
+  if (buf.length < 100 || !(buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff)) {
+    throw new HttpError(400, 'Нужна картинка в формате JPEG');
+  }
+  const file = avatarFile(ctx.user.id);
+  const tmp = `${file}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, buf);
+  fs.renameSync(tmp, file);
+  const ver = now();
+  db.prepare('UPDATE users SET avatar_ver = ? WHERE id = ?').run(ver, ctx.user.id);
+  sendJson(ctx.res, 200, { avatarVer: ver });
+});
+
+route('DELETE', '/api/avatar', (ctx) => {
+  requireUser(ctx);
+  try { fs.unlinkSync(avatarFile(ctx.user.id)); } catch { /* файла уже нет */ }
+  db.prepare('UPDATE users SET avatar_ver = 0 WHERE id = ?').run(ctx.user.id);
+  sendJson(ctx.res, 200, { avatarVer: 0 });
+});
+
+// аватарку видят только сам человек и администратор
+route('GET', '/api/avatar/:id', (ctx) => {
+  requireUser(ctx);
+  const id = Number(ctx.params.id);
+  if (id !== ctx.user.id && !ctx.user.isAdmin) throw new HttpError(403, 'Нет доступа');
+  sendFile(ctx.req, ctx.res, avatarFile(id), { type: 'image/jpeg', cache: 'private, max-age=31536000, immutable' }); // адрес меняется вместе с ?v=
 });
 
 // --- Книги: чтение
@@ -1210,7 +1279,7 @@ route('GET', '/api/admin/users', (ctx) => {
   requireAdmin(ctx);
   const t = now();
   const today = Math.floor(t / DAY_MS);
-  const users = db.prepare('SELECT id, nick, is_admin, created_at, streak, best_streak, last_read_day, last_seen_at, now_book_id, now_at FROM users').all();
+  const users = db.prepare('SELECT id, nick, is_admin, created_at, streak, best_streak, last_read_day, last_seen_at, now_book_id, now_at, phone, avatar_ver FROM users').all();
   const devs = new Map();
   for (const s of db.prepare('SELECT user_id, ua, created_at, last_used_at FROM sessions WHERE expires_at > ? ORDER BY last_used_at DESC, created_at DESC').all(t)) {
     if (!devs.has(s.user_id)) devs.set(s.user_id, []);
@@ -1250,6 +1319,8 @@ route('GET', '/api/admin/users', (ctx) => {
       nick: u.nick,
       isAdmin: !!u.is_admin,
       isMe: u.id === ctx.user.id,
+      phone: u.phone || '',
+      avatarVer: u.avatar_ver || 0,
       devices: devs.get(u.id) || [],
       readingNow,
       createdAt: u.created_at,
@@ -1279,6 +1350,7 @@ route('DELETE', '/api/admin/users/:id', (ctx) => {
   if (u.id === ctx.user.id) throw new HttpError(400, 'Нельзя удалить свой собственный аккаунт');
   // закладки, выделения, прогресс, избранное и сессии удаляются каскадом
   db.prepare('DELETE FROM users WHERE id = ?').run(u.id);
+  try { fs.unlinkSync(avatarFile(u.id)); } catch { /* аватарки не было */ }
   seenAt.delete(u.id);
   sendJson(ctx.res, 200, { ok: true });
 });
