@@ -679,6 +679,7 @@
     минхаджсунна: 'minhaj-sunna', минхаджсунны: 'minhaj-sunna', минхаджассунна: 'minhaj-sunna',
     tullabalharamayn: 'tullab-al-haramayn', tullabulharamayn: 'tullab-al-haramayn', tullabalharamain: 'tullab-al-haramayn', tullabharamayn: 'tullab-al-haramayn',
     туллабальхарамайн: 'tullab-al-haramayn', туллабульхарамайн: 'tullab-al-haramayn', туллабальхарамаин: 'tullab-al-haramayn',
+    fajr: 'fajr', fadjr: 'fajr', fadzhr: 'fajr', фаджр: 'fajr', фаджир: 'fajr', фаджриздательскийдом: 'fajr', издательскийдомфаджр: 'fajr',
     rushd: 'rushd', рушд: 'rushd',
     abusolikh: 'abu-solikh', abusolih: 'abu-solikh', abusalih: 'abu-solikh', абусолих: 'abu-solikh', абусалих: 'abu-solikh',
   };
