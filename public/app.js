@@ -1855,6 +1855,7 @@
     $('#r-total').textContent = '';
     $('#r-status').textContent = '';
     $('#r-bar').style.width = '0';
+    $('#r-knob').style.left = '0';
     bookEl.replaceChildren();
     R.pgsEl = R.pgL = R.pgR = null;
     showLoading('Открываем книгу…');
@@ -2180,6 +2181,75 @@
 
   const relayout = () => { resetPageCache(); R.domKey = ''; return show(R.page, { save: false, force: true }); };
 
+  /* ---------- Ползунок страниц: полоса внизу читалки ---------- */
+  const SCRUB = { on: false, page: 0, timer: 0, id: null };
+  const scrubEl = $('#r-scrub');
+  const knobEl = $('#r-knob');
+  const scrubTip = $('#r-tip');
+
+  // рисуем полосу, бегунок и подпись для страниц first–last (при перетаскивании — для страницы под пальцем)
+  function paintScrub(first, last, preview = false) {
+    const frac = R.total ? Math.min(1, last / R.total) : 0;
+    const pct = R.total ? Math.min(100, Math.floor(frac * 100)) : 0;
+    $('#r-bar').style.width = `${frac * 100}%`;
+    knobEl.style.left = `${frac * 100}%`;
+    $('#r-status').textContent = first === last
+      ? `Страница ${first} из ${R.total} • ${pct}%`
+      : `Страницы ${first}–${last} из ${R.total} • ${pct}%`;
+    scrubEl.setAttribute('aria-valuemax', String(R.total || 1));
+    scrubEl.setAttribute('aria-valuenow', String(first));
+    scrubEl.setAttribute('aria-valuetext', `Страница ${first} из ${R.total}`);
+    if (preview) {
+      scrubTip.textContent = `стр. ${last}`;
+      const w = scrubEl.clientWidth;
+      const tw = scrubTip.offsetWidth;
+      scrubTip.style.left = `${Math.min(Math.max(frac * w - tw / 2, 0), Math.max(0, w - tw))}px`;
+    }
+  }
+
+  const scrubPageAt = (clientX) => {
+    const r = scrubEl.getBoundingClientRect();
+    const f = r.width ? Math.min(1, Math.max(0, (clientX - r.left) / r.width)) : 0;
+    return clampPage(Math.ceil(f * R.total));
+  };
+
+  function scrubTo(page) {
+    if (page === SCRUB.page) return;
+    SCRUB.page = page;
+    paintScrub(page, page, true);
+    // саму страницу рисуем не на каждый пиксель, а когда палец на секунду замедлился
+    clearTimeout(SCRUB.timer);
+    SCRUB.timer = setTimeout(() => { if (SCRUB.on) show(SCRUB.page); }, 90);
+  }
+
+  scrubEl.addEventListener('pointerdown', (e) => {
+    if (!R.doc || !R.total || (e.pointerType === 'mouse' && e.button !== 0)) return;
+    e.preventDefault();
+    SCRUB.on = true;
+    SCRUB.id = e.pointerId;
+    SCRUB.page = 0;
+    try { scrubEl.setPointerCapture(e.pointerId); } catch { /* ok */ }
+    scrubEl.classList.add('scrubbing');
+    scrubTip.hidden = false;
+    scrubTo(scrubPageAt(e.clientX));
+  });
+  scrubEl.addEventListener('pointermove', (e) => {
+    if (SCRUB.on && e.pointerId === SCRUB.id) scrubTo(scrubPageAt(e.clientX));
+  });
+  const scrubEnd = (e) => {
+    if (!SCRUB.on || (e && e.pointerId !== SCRUB.id)) return;
+    clearTimeout(SCRUB.timer);
+    SCRUB.on = false;
+    scrubEl.classList.remove('scrubbing');
+    scrubTip.hidden = true;
+    try { scrubEl.releasePointerCapture(SCRUB.id); } catch { /* ok */ }
+    if (e?.type !== 'pointercancel' && SCRUB.page) show(SCRUB.page); // отпустили — открываем выбранную страницу
+    else updateReaderUi();
+  };
+  scrubEl.addEventListener('pointerup', scrubEnd);
+  scrubEl.addEventListener('pointercancel', scrubEnd);
+  scrubEl.addEventListener('lostpointercapture', scrubEnd);
+
   /* ---------- Интерфейс читалки ---------- */
   function updateReaderUi() {
     const first = firstVisible();
@@ -2190,11 +2260,7 @@
       pageInput.disabled = false;
       $('#r-prev').disabled = first <= 1;
       $('#r-next').disabled = last >= R.total;
-      const pct = R.total ? Math.min(100, Math.floor((last / R.total) * 100)) : 0;
-      $('#r-bar').style.width = R.total ? `${(last / R.total) * 100}%` : '0';
-      $('#r-status').textContent = first === last
-        ? `Страница ${first} из ${R.total} • ${pct}%`
-        : `Страницы ${first}–${last} из ${R.total} • ${pct}%`;
+      if (!SCRUB.on) paintScrub(first, last);
     }
     $('#r-fit').classList.toggle('active', R.mode === 'fit');
     const bmBtn = $('#r-bookmode');

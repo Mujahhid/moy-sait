@@ -368,7 +368,7 @@ main { position: relative; z-index: 0; isolation: isolate; max-width: var(--maxw
 .reader-progress > div { height: 100%; width: 0; background: var(--gold); transition: width .2s; }
 
 /* полный экран: без кнопок и полосы — только «Страницы … из … • …%», листаем нажатием на края книги */
-.reader.full .reader-foot #r-prev, .reader.full .reader-foot #r-next, .reader.full .reader-progress { display: none; }
+.reader.full .reader-foot #r-prev, .reader.full .reader-foot #r-next, .reader.full .reader-scrub { display: none; }
 .reader.full .reader-foot { justify-content: center; padding-block: 6px calc(6px + env(safe-area-inset-bottom)); border-top: 0; background: transparent; }
 .reader.full .reader-center { flex: 0 1 auto; gap: 0; }
 .reader.full .reader-stage { cursor: default; }
@@ -1090,3 +1090,17 @@ main { position: relative; z-index: 0; isolation: isolate; max-width: var(--maxw
 .u-prog i { position: absolute; inset: 0 auto 0 0; width: var(--p, 0%); background: #fff; animation: u-fill 1.2s cubic-bezier(.2, .8, .2, 1) both; }
 .u-prog span { position: relative; display: flex; align-items: center; justify-content: center; height: 100%; padding: 0 10px; color: #000; font-size: .86rem; font-weight: 600; text-align: center; }
 @keyframes u-fill { from { width: 0; } }
+
+
+/* ---- полоса чтения как ползунок: тянешь пальцем или мышью — страницы листаются ---- */
+.reader-scrub { position: relative; width: 100%; height: 30px; margin: -9px 0; cursor: pointer; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; }
+.reader-scrub .reader-progress { position: absolute; left: 0; right: 0; top: 50%; width: auto; height: 6px; margin-top: -3px; transition: height .15s, margin-top .15s; }
+.reader-scrub:hover .reader-progress, .reader-scrub.scrubbing .reader-progress { height: 8px; margin-top: -4px; }
+.reader-scrub.scrubbing .reader-progress > div { transition: none; }
+.scrub-knob { position: absolute; top: 50%; left: 0; width: 20px; height: 20px; margin: -10px 0 0 -10px; border-radius: 50%; background: var(--gold); border: 3px solid var(--paper); box-shadow: 0 1px 5px rgba(0, 0, 0, .35); pointer-events: none; transition: left .2s, transform .15s; }
+.reader-scrub.scrubbing .scrub-knob { transition: transform .15s; transform: scale(1.25); }
+.reader.night .scrub-knob { border-color: #151917; }
+.scrub-tip { position: absolute; bottom: 100%; left: 0; margin-bottom: 4px; padding: 5px 11px; border-radius: 10px; background: var(--ink); color: var(--paper); font-size: .88rem; font-weight: 600; white-space: nowrap; font-variant-numeric: tabular-nums; pointer-events: none; box-shadow: 0 4px 14px rgba(20, 16, 6, .3); }
+.scrub-tip[hidden] { display: none; }
+.reader.night .scrub-tip { background: #e7e1d0; color: #151917; }
+@media (max-width: 640px) { .reader-scrub { height: 40px; margin: -14px 0; } }

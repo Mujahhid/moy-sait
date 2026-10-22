@@ -113,7 +113,11 @@
       <button type="button" class="btn ghost" id="r-prev" aria-label="Назад">←<span class="lbl"> Назад</span></button>
       <div class="reader-center">
         <div class="reader-status" id="r-status" aria-live="polite"></div>
-        <div class="reader-progress"><div id="r-bar"></div></div>
+        <div class="reader-scrub" id="r-scrub" role="slider" aria-label="Перемотка по страницам" aria-valuemin="1" aria-valuenow="1" aria-valuemax="1">
+          <div class="reader-progress"><div id="r-bar"></div></div>
+          <i class="scrub-knob" id="r-knob" aria-hidden="true"></i>
+          <div class="scrub-tip" id="r-tip" aria-hidden="true" hidden></div>
+        </div>
       </div>
       <button type="button" class="btn ghost" id="r-next" aria-label="Дальше"><span class="lbl">Дальше </span>→</button>
     </div>
