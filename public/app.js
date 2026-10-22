@@ -1496,8 +1496,6 @@
       </div>
       <div class="profile-actions top">
         <button type="button" class="btn ghost" id="p-edit">Редактировать профиль</button>
-        <a class="btn ghost" href="#offline">Скачанные книги</a>
-        <a class="btn ghost" href="#favorites">Мои книги</a>
         <button type="button" class="btn ghost" id="p-logout">Выйти</button>
       </div>
       <div class="sync-line">✓ Прогресс и «Хочу прочитать» синхронизированы · ${hhmm}</div>
