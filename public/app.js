@@ -1664,7 +1664,7 @@
       const up = w.avg > prev.avg;
       trend = `<i class="st-trend ${up ? 'up' : 'down'}" title="${up ? 'Больше' : 'Меньше'}, чем на прошлой неделе (${stNum(prev.avg)} стр. в день)">${up ? ST_ARROW_UP : ST_ARROW_DOWN}</i>`;
     }
-    const rel = STATS.sel === 0 ? 'Этой недели' : STATS.sel === -1 ? 'Прошлой недели' : '';
+    const rel = STATS.sel === 0 ? 'Эта неделя' : '';
     const hasAny = Object.values(STATS.days).some((v) => v > 0);
     $('#st-head').innerHTML = `
       <div class="st-left">
