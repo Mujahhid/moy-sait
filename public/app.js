@@ -358,6 +358,7 @@
     $('#nav-profile span').textContent = state.me ? state.me.nick : 'Профиль';
     $('#tab-register').hidden = !state.registration;
     $('#nav-offline').hidden = !state.me;
+    $('#nav-top').hidden = !state.me; // пьедестал — для всех, кто вошёл
     $('#nav-offline').classList.toggle('active', state.route === 'offline');
     paintStreak();
   }
@@ -2094,6 +2095,70 @@
     toast(`🔥 Серия чтения: ${n} ${daysWord(n)} подряд. Рекорд: ${STREAK.best}. До роста огонька: ${left} ${daysWord(left)}.`
       + (STREAK.today ? '' : ' Прочитайте сегодня хотя бы страницу, чтобы не потерять серию.'), false, 5500);
   };
+
+  /* ================= Лучшие читатели: день, неделя, месяц ================= */
+  // Рейтинг по прочитанным страницам. Администратор в нём не участвует — это решает сервер.
+  const TOP = { tab: 'day', data: null };
+  const TOP_TABS = [['day', 'День'], ['week', 'Неделя'], ['month', 'Месяц']];
+  const TOP_CAP = { day: 'Страниц прочитано сегодня', week: 'Страниц прочитано на этой неделе', month: 'Страниц прочитано в этом месяце' };
+  const TOP_EMPTY = { day: 'Сегодня пока никто не читал.', week: 'На этой неделе пока никто не читал.', month: 'В этом месяце пока никто не читал.' };
+  const TOP_MEDALS = ['🥇', '🥈', '🥉'];
+
+  // место: в месяце 1–3 места — медальки, в остальных случаях номер
+  function topRankHtml(tab, rank) {
+    if (tab === 'month' && rank >= 1 && rank <= 3) return `<span class="top-medal" role="img" aria-label="${rank} место">${TOP_MEDALS[rank - 1]}</span>`;
+    return String(rank);
+  }
+
+  function topRowHtml(tab, r) {
+    return `<tr class="${r.me ? 'me' : ''}">
+      <td class="top-rank">${topRankHtml(tab, r.rank)}</td>
+      <td class="top-user"><span>${avatarHtml({ id: r.id, nick: r.nick, avatarVer: r.avatarVer }, 'sm')}<i dir="auto">${esc(r.nick)}</i>${r.me ? '<em>вы</em>' : ''}</span></td>
+      <td class="top-pages"><b>${stNum(r.pages)}</b> стр.</td>
+    </tr>`;
+  }
+
+  function paintTop() {
+    const d = TOP.data;
+    if (!d) return;
+    $('#top-tabs').innerHTML = TOP_TABS.map(([k, name]) =>
+      `<button type="button" class="tab${k === TOP.tab ? ' active' : ''}" role="tab" aria-selected="${k === TOP.tab}" data-top="${k}">${name}</button>`).join('');
+    const sec = d[TOP.tab];
+    let html = `<p class="muted small top-cap">${TOP_CAP[TOP.tab]}</p>`;
+    if (!sec.items.length) {
+      html += `<div class="empty top-empty">${TOP_EMPTY[TOP.tab]}</div>`;
+    } else {
+      const rows = sec.items.map((r) => topRowHtml(TOP.tab, r)).join('');
+      // читатель ниже десятого места — его строка отдельно, под списком
+      const mine = sec.me && state.me
+        ? `<tr class="gap"><td colspan="3">…</td></tr>${topRowHtml(TOP.tab, { rank: sec.me.rank, id: state.me.id, nick: state.me.nick, avatarVer: state.me.avatarVer, pages: sec.me.pages, me: true })}`
+        : '';
+      html += `<table class="top-table"><colgroup><col class="c-rank"><col><col class="c-pages"></colgroup><tbody>${rows}${mine}</tbody></table>`;
+    }
+    if (state.me?.isAdmin) html += '<p class="muted small top-note">Администратор в рейтинге не участвует.</p>';
+    $('#top-body').innerHTML = html;
+  }
+
+  async function openTop() {
+    $('#top-tabs').innerHTML = '';
+    $('#top-body').innerHTML = '<p class="muted">Загрузка…</p>';
+    openModal('m-top');
+    try {
+      TOP.data = await api('GET', `/api/top?day=${dayKey()}`);
+    } catch (e) {
+      $('#top-body').innerHTML = `<p class="form-error">${esc(e.message)}</p>`;
+      return;
+    }
+    TOP.tab = 'day';
+    paintTop();
+  }
+  $('#nav-top').onclick = openTop;
+  $('#top-tabs').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-top]');
+    if (!b) return;
+    TOP.tab = b.dataset.top;
+    paintTop();
+  });
 
   /* ================= Закладки и выделения по всем книгам ================= */
   const NOTES = { tab: 'highlights', books: [] };

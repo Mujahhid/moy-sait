@@ -33,6 +33,9 @@
     </a>
     <div class="top-actions">
       <button type="button" class="streak-btn" id="nav-streak" hidden aria-label="Серия чтения"></button>
+      <button type="button" class="round-btn" id="nav-top" title="Лучшие читатели" aria-label="Лучшие читатели" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 20v-6.5l2.6-2H8.5M3 13.5h5.5M8.5 20V7l1.9-2.5h3.2L15.5 7v13M8.5 7h7M21 20v-6.5l-2.6-2H15.5M15.5 13.5H21M3 20h18"/></svg>
+      </button>
       <a class="round-btn" id="nav-offline" href="#offline" title="Скачанные книги" aria-label="Скачанные книги" hidden>
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 20h14"/></svg>
       </a>
@@ -177,6 +180,16 @@
       <button type="button" class="icon-btn modal-x" data-close aria-label="Закрыть">✕</button>
       <h3 id="prof-title">Редактировать профиль</h3>
       <div id="prof-body"></div>
+    </div>
+  </div>
+
+  <!-- Лучшие читатели: за день, неделю и месяц -->
+  <div class="modal" id="m-top" hidden role="dialog" aria-modal="true" aria-labelledby="top-title">
+    <div class="modal-card narrow">
+      <button type="button" class="icon-btn modal-x" data-close aria-label="Закрыть">✕</button>
+      <h3 id="top-title">Лучшие читатели</h3>
+      <div class="tabs top-tabs" id="top-tabs" role="tablist" aria-label="Период"></div>
+      <div id="top-body"></div>
     </div>
   </div>
 

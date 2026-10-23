@@ -1100,6 +1100,42 @@ route('GET', '/api/read-stats', (ctx) => {
   sendJson(ctx.res, 200, { days }, { 'Cache-Control': 'no-store' });
 });
 
+// Лучшие читатели: сколько страниц прочитано за день, неделю (с понедельника) и месяц. Администраторы в рейтинге не участвуют.
+// Сегодняшний день присылает устройство (как для статистики), поэтому день, неделя и месяц считаются по его календарю.
+const TOP_LIMIT = 10;
+route('GET', '/api/top', (ctx) => {
+  requireUser(ctx);
+  const day = clientDay(ctx.query.get('day'));
+  const n = dayNum(day);
+  const weekday = (new Date(n * DAY_MS).getUTCDay() + 6) % 7; // 0 — понедельник
+  const ranges = {
+    day: [day, day],
+    week: [new Date((n - weekday) * DAY_MS).toISOString().slice(0, 10), day],
+    month: [`${day.slice(0, 7)}-01`, day],
+  };
+  const q = db.prepare(
+    `SELECT u.id, u.nick, u.avatar_ver, COUNT(*) AS pages
+     FROM read_pages r JOIN users u ON u.id = r.user_id
+     WHERE u.is_admin = 0 AND r.day >= ? AND r.day <= ?
+     GROUP BY r.user_id ORDER BY pages DESC, u.nick`
+  );
+  const out = {};
+  for (const [key, [from, to]] of Object.entries(ranges)) {
+    const all = q.all(from, to);
+    const items = all.slice(0, TOP_LIMIT).map((r, i) => ({
+      rank: i + 1, id: r.id, nick: r.nick, avatarVer: r.avatar_ver || 0, pages: r.pages, me: r.id === ctx.user.id,
+    }));
+    // читатель не вошёл в топ — показываем его место отдельной строкой (администратору — нет, он не участвует)
+    let me = null;
+    if (!ctx.user.isAdmin) {
+      const i = all.findIndex((r) => r.id === ctx.user.id);
+      if (i >= TOP_LIMIT) me = { rank: i + 1, pages: all[i].pages };
+    }
+    out[key] = { items, me, readers: all.length };
+  }
+  sendJson(ctx.res, 200, out, { 'Cache-Control': 'no-store' });
+});
+
 route('DELETE', '/api/progress/:id', (ctx) => {
   requireUser(ctx);
   db.prepare('DELETE FROM progress WHERE user_id = ? AND book_id = ?').run(ctx.user.id, Number(ctx.params.id));
