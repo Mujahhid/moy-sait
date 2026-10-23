@@ -106,6 +106,18 @@ db.exec(`
   if (!sCols.includes('last_used_at')) db.exec('ALTER TABLE sessions ADD COLUMN last_used_at INTEGER NOT NULL DEFAULT 0');
 }
 
+// статистика чтения: какие страницы человек прочитал в какой день (день — по часам его устройства).
+// Страница в один день считается один раз, сколько бы раз её ни перелистывали.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS read_pages (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    day TEXT NOT NULL,
+    book_id INTEGER NOT NULL,
+    page INTEGER NOT NULL,
+    PRIMARY KEY (user_id, day, book_id, page)
+  ) WITHOUT ROWID;
+`);
+
 const now = () => Date.now();
 const LANGS = ['ru', 'ar', 'en'];
 const cleanSessions = () => db.prepare('DELETE FROM sessions WHERE expires_at < ?').run(now());
@@ -1039,11 +1051,53 @@ route('PUT', '/api/progress/:id', async (ctx) => {
   let page = parseInt(body.page, 10);
   if (!Number.isFinite(page) || page < 1) throw new HttpError(400, 'Некорректная страница');
   if (b.pages > 0) page = Math.min(page, b.pages);
+  const prev = db.prepare('SELECT page FROM progress WHERE user_id = ? AND book_id = ?').get(ctx.user.id, b.id);
   db.prepare(
     `INSERT INTO progress (user_id, book_id, page, updated_at) VALUES (?, ?, ?, ?)
      ON CONFLICT(user_id, book_id) DO UPDATE SET page = excluded.page, updated_at = excluded.updated_at`
   ).run(ctx.user.id, b.id, page, now());
+  creditPages(ctx.user.id, b.id, prev ? prev.page : 0, page, body.day, !prev);
   sendJson(ctx.res, 200, { page });
+});
+
+// Сколько страниц прочитано: шаг вперёд засчитываем страницами между прежним и новым местом.
+// Прыжок ползунком (дальше JUMP_MAX страниц) чтением не считается — страницы не читали, а проматывали.
+// Если книгу открыли впервые, засчитываем только первый разворот — чтение с начала.
+const JUMP_MAX = 40;
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+function clientDay(s) {
+  const today = Math.floor(now() / DAY_MS);
+  const str = String(s || '');
+  if (DAY_RE.test(str)) {
+    const n = dayNum(str);
+    if (Number.isFinite(n) && new Date(n * DAY_MS).toISOString().slice(0, 10) === str && Math.abs(n - today) <= 1) return str;
+  }
+  return new Date(today * DAY_MS).toISOString().slice(0, 10);
+}
+function creditPages(userId, bookId, from, to, day, fresh) {
+  let first;
+  if (fresh) {
+    if (to > 4) return;
+    first = Math.max(1, to - 1);
+  } else {
+    if (to <= from || to - from > JUMP_MAX) return;
+    first = from + 1;
+  }
+  const d = clientDay(day);
+  const ins = db.prepare('INSERT OR IGNORE INTO read_pages (user_id, day, book_id, page) VALUES (?, ?, ?, ?)');
+  for (let p = first; p <= to; p++) ins.run(userId, d, bookId, p);
+}
+
+// Статистика по дням: сколько страниц прочитано в каждый день (за последние ~400 дней)
+route('GET', '/api/read-stats', (ctx) => {
+  requireUser(ctx);
+  const from = new Date(now() - 400 * DAY_MS).toISOString().slice(0, 10);
+  const rows = db
+    .prepare('SELECT day, COUNT(*) AS c FROM read_pages WHERE user_id = ? AND day >= ? GROUP BY day')
+    .all(ctx.user.id, from);
+  const days = {};
+  for (const r of rows) days[r.day] = r.c;
+  sendJson(ctx.res, 200, { days }, { 'Cache-Control': 'no-store' });
 });
 
 route('DELETE', '/api/progress/:id', (ctx) => {

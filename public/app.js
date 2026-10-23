@@ -337,11 +337,12 @@
   /* ================= Роутинг и страницы ================= */
   const view = $('#view');
 
-  const ROUTES = ['home', 'publishers', 'catalog', 'favorites', 'offline', 'profile', 'users'];
+  const ROUTES = ['home', 'publishers', 'catalog', 'favorites', 'offline', 'profile', 'users', 'stats'];
   function currentRoute() {
     const h = location.hash.replace(/^#/, '');
     const r = ROUTES.includes(h) ? h : 'home';
     if (r === 'profile' && !state.me) return 'home';
+    if (r === 'stats' && !state.me) return 'home';
     if (r === 'users' && !state.me?.isAdmin) return state.me ? 'catalog' : 'home'; // раздел только для администратора
     return r === 'home' && state.me ? 'catalog' : r; // «Главная» — только окно входа для гостя
   }
@@ -350,9 +351,10 @@
 
   function updateNav() {
     $('.tabbar [data-nav=home]').hidden = !!state.me;
+    const navRoute = state.route === 'users' || state.route === 'stats' ? 'profile' : state.route; // подразделы профиля
     $$('.tabbar [data-nav]').forEach((el) => {
-      el.classList.toggle('active', el.dataset.nav === (state.route === 'users' ? 'profile' : state.route));
-      if (el.tagName === 'A') el.setAttribute('aria-current', el.dataset.nav === (state.route === 'users' ? 'profile' : state.route) ? 'page' : 'false');
+      el.classList.toggle('active', el.dataset.nav === navRoute);
+      if (el.tagName === 'A') el.setAttribute('aria-current', el.dataset.nav === navRoute ? 'page' : 'false');
     });
     $('#nav-profile span').textContent = state.me ? state.me.nick : 'Профиль';
     $('#tab-register').hidden = !state.registration;
@@ -364,7 +366,7 @@
   async function render() {
     state.route = currentRoute();
     if (state.me && off.ok && !off.scanned) { off.scanned = true; await offlineScan(); }
-    if (state.me && location.hash !== '#' + state.route && !['publishers', 'favorites', 'offline', 'profile', 'users'].includes(state.route)) {
+    if (state.me && location.hash !== '#' + state.route && !['publishers', 'favorites', 'offline', 'profile', 'users', 'stats'].includes(state.route)) {
       history.replaceState(null, '', '#' + state.route);
     }
     if (state.route !== 'publishers') state.publisher = '';
@@ -378,6 +380,7 @@
       else if (state.route === 'offline') await renderOffline();
       else if (state.route === 'profile') await renderProfile();
       else if (state.route === 'users') await renderUsers();
+      else if (state.route === 'stats') await renderStats();
       else await renderFavorites();
     } catch (e) {
       view.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
@@ -1496,6 +1499,7 @@
       </div>
       <div class="profile-actions top">
         <button type="button" class="btn ghost" id="p-edit">Редактировать профиль</button>
+        <a class="btn ghost" id="p-stats" href="#stats">Статистика</a>
         <button type="button" class="btn ghost" id="p-logout">Выйти</button>
       </div>
       <div class="sync-line">✓ Прогресс и «Хочу прочитать» синхронизированы · ${hhmm}</div>
@@ -1533,6 +1537,213 @@
       render();
     };
   }
+
+  /* ================= Статистика чтения: страницы по дням и неделям ================= */
+  // off — номер недели относительно текущей: 0 — эта, -1 — прошлая и т.д. Недели с понедельника.
+  const STATS = { days: {}, sel: 0, end: 0 };
+  const ST_WD = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+  const ST_MON = ['янв', 'фев', 'мар', 'апр', 'мая', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
+  const ST_MON_CAP = ['ЯНВ.', 'ФЕВР.', 'МАРТ', 'АПР.', 'МАЙ', 'ИЮНЬ', 'ИЮЛЬ', 'АВГ.', 'СЕНТ.', 'ОКТ.', 'НОЯБ.', 'ДЕК.'];
+  const ST_WEEKS = 10; // сколько недель на графике
+  const ST_MAX_BACK = 52;
+  const stPad = (n) => String(n).padStart(2, '0');
+  const stKey = (d) => `${d.getFullYear()}-${stPad(d.getMonth() + 1)}-${stPad(d.getDate())}`;
+  const stAdd = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
+  const stMonday = (d) => stAdd(d, -((d.getDay() + 6) % 7));
+  const stNum = (n) => Number(n).toLocaleString('ru-RU');
+  const stToday = () => { const t = new Date(); return new Date(t.getFullYear(), t.getMonth(), t.getDate()); };
+
+  // первый день, в который есть чтение: раньше этого дня среднее не считаем
+  function stFirstKey() {
+    const keys = Object.keys(STATS.days).filter((k) => STATS.days[k] > 0).sort();
+    return keys[0] || stKey(stToday());
+  }
+
+  function stWeek(off) {
+    const today = stToday();
+    const todayKey = stKey(today);
+    const first = stFirstKey();
+    const start = stAdd(stMonday(today), off * 7);
+    const days = [];
+    for (let i = 0; i < 7; i++) {
+      const d = stAdd(start, i);
+      const k = stKey(d);
+      days.push({ d, k, v: STATS.days[k] || 0, future: k > todayKey, today: k === todayKey, before: k < first });
+    }
+    const total = days.reduce((s, x) => s + x.v, 0);
+    // среднее за день: только дни, которые уже прошли и не раньше первого чтения; сегодняшний день без чтения ещё не закончился
+    let counted = days.filter((x) => !x.future && !x.before);
+    if (off === 0 && counted.length > 1) {
+      const last = counted[counted.length - 1];
+      if (last.today && last.v === 0) counted = counted.slice(0, -1);
+    }
+    const avg = counted.length ? Math.round(total / counted.length) : 0;
+    const hasData = days[6].k >= first; // неделя не целиком раньше первого чтения
+    return { off, start, days, total, avg, hasData };
+  }
+
+  function stRange(start) {
+    const e = stAdd(start, 6);
+    const yr = start.getFullYear() !== new Date().getFullYear() ? ` ${e.getFullYear()}` : '';
+    return start.getMonth() === e.getMonth()
+      ? `${start.getDate()}–${e.getDate()} ${ST_MON[e.getMonth()]}${yr}`
+      : `${start.getDate()} ${ST_MON[start.getMonth()]} – ${e.getDate()} ${ST_MON[e.getMonth()]}${yr}`;
+  }
+
+  function stSmooth(pts, top, bottom) {
+    if (pts.length < 2) return '';
+    const cl = (y) => Math.min(bottom, Math.max(top, y));
+    let d = `M${pts[0].x.toFixed(1)},${pts[0].y.toFixed(1)}`;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const p0 = pts[i - 1] || pts[i];
+      const p1 = pts[i];
+      const p2 = pts[i + 1];
+      const p3 = pts[i + 2] || p2;
+      const c1x = p1.x + (p2.x - p0.x) / 6;
+      const c1y = cl(p1.y + (p2.y - p0.y) / 6);
+      const c2x = p2.x - (p3.x - p1.x) / 6;
+      const c2y = cl(p2.y - (p3.y - p1.y) / 6);
+      d += ` C${c1x.toFixed(1)},${c1y.toFixed(1)} ${c2x.toFixed(1)},${c2y.toFixed(1)} ${p2.x.toFixed(1)},${p2.y.toFixed(1)}`;
+    }
+    return d;
+  }
+
+  const ST_ARROW_DOWN = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 9v8H9"/></svg>';
+  const ST_ARROW_UP = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17L17 7M9 7h8v8"/></svg>';
+
+  function stChartSvg() {
+    const W = 340;
+    const H = 150;
+    const padX = 22;
+    const top = 34;
+    const bottom = H - 16;
+    const weeks = [];
+    for (let i = 0; i < ST_WEEKS; i++) weeks.push(stWeek(STATS.end - (ST_WEEKS - 1) + i));
+    const maxT = Math.max(1, ...weeks.map((w) => w.total));
+    const mean = weeks.reduce((s, w) => s + w.total, 0) / weeks.length;
+    const x = (i) => padX + (i * (W - padX * 2)) / (ST_WEEKS - 1);
+    const y = (v) => bottom - (v / maxT) * (bottom - top);
+    const pts = weeks.map((w, i) => ({ x: x(i), y: y(w.total), w }));
+    const line = stSmooth(pts, top, bottom);
+    const area = `${line} L${pts[pts.length - 1].x.toFixed(1)},${bottom} L${pts[0].x.toFixed(1)},${bottom} Z`;
+    let labels = '';
+    let prevMon = -1;
+    pts.forEach((p) => {
+      const m = p.w.start.getMonth();
+      if (m !== prevMon) labels += `<text class="st-mon" x="${p.x.toFixed(1)}" y="16" text-anchor="${p.x < 40 ? 'start' : 'middle'}">${ST_MON_CAP[m]}</text>`;
+      prevMon = m;
+    });
+    const grid = pts.map((p) => `<line class="st-grid" x1="${p.x.toFixed(1)}" y1="26" x2="${p.x.toFixed(1)}" y2="${H}"/>`).join('');
+    const dots = pts.map((p) => {
+      const on = p.w.off === STATS.sel;
+      return on
+        ? `<circle class="st-dot-ring" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="9"/><circle class="st-dot-core" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="4.5"/>`
+        : `<circle class="st-dot" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="4.5"/>`;
+    }).join('');
+    const hits = pts.map((p) => `<circle class="st-hit" data-off="${p.w.off}" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="16"><title>${esc(stRange(p.w.start))}: ${stNum(p.w.total)} стр.</title></circle>`).join('');
+    return `<svg viewBox="0 0 ${W} ${H}" class="st-svg" role="img" aria-label="Страницы по неделям">
+      <defs><linearGradient id="st-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#19c8ff" stop-opacity=".45"/><stop offset="1" stop-color="#19c8ff" stop-opacity="0"/></linearGradient></defs>
+      ${grid}${labels}
+      <path d="${area}" fill="url(#st-fill)"/>
+      <line class="st-mean" x1="${padX}" y1="${y(mean).toFixed(1)}" x2="${W - padX}" y2="${y(mean).toFixed(1)}"/>
+      <path class="st-line" d="${line}"/>
+      ${dots}${hits}
+    </svg>`;
+  }
+
+  function paintStats() {
+    const card = $('#st-card');
+    if (!card) return;
+    const w = stWeek(STATS.sel);
+    const prev = stWeek(STATS.sel - 1);
+    const maxV = Math.max(...w.days.map((d) => d.v));
+    const best = maxV > 0 ? w.days.findIndex((d) => d.v === maxV) : -1;
+    // стрелка: среднее за день в этой неделе сравниваем с прошлой. Больше — зелёная вверх, меньше — красная вниз
+    let trend = '';
+    if (prev.hasData && w.avg !== prev.avg) {
+      const up = w.avg > prev.avg;
+      trend = `<i class="st-trend ${up ? 'up' : 'down'}" title="${up ? 'Больше' : 'Меньше'}, чем на прошлой неделе (${stNum(prev.avg)} стр. в день)">${up ? ST_ARROW_UP : ST_ARROW_DOWN}</i>`;
+    }
+    const rel = STATS.sel === 0 ? 'Этой недели' : STATS.sel === -1 ? 'Прошлой недели' : '';
+    const hasAny = Object.values(STATS.days).some((v) => v > 0);
+    $('#st-head').innerHTML = `
+      <div class="st-left">
+        <div class="st-weeknav">
+          <button type="button" class="st-nav" id="st-prev" aria-label="Предыдущая неделя"${STATS.sel <= -ST_MAX_BACK ? ' disabled' : ''}>‹</button>
+          <span class="st-range">${esc(stRange(w.start))}${rel ? ` <span class="st-dotsep">•</span> ${rel}` : ''}</span>
+          <button type="button" class="st-nav" id="st-next" aria-label="Следующая неделя"${STATS.sel >= 0 ? ' disabled' : ''}>›</button>
+        </div>
+        <div class="st-total">${stNum(w.total)}</div>
+        <div class="st-cap">страниц за неделю</div>
+      </div>
+      <div class="st-right">
+        <div class="st-avg"><span>⌀ ${stNum(w.avg)}</span>${trend}</div>
+        <div class="st-cap">в среднем за день</div>
+      </div>`;
+    $('#st-days').innerHTML = w.days.map((d, i) => {
+      const pct = d.v > 0 ? Math.max(14, Math.round((d.v / maxV) * 100)) : 0;
+      const cls = d.future ? 'future' : d.v === 0 ? 'zero' : '';
+      return `<div class="st-day ${d.today ? 'today' : ''}">
+        <div class="st-wd">${ST_WD[i]}</div>
+        <div class="st-val">${d.future ? '' : stNum(d.v)}</div>
+        <div class="st-col"><div class="st-track ${cls}">${d.future ? '' : `<div class="st-fill" style="height:${pct}%"></div>`}${i === best ? '<span class="st-star" title="Больше всего за неделю">★</span>' : ''}</div></div>
+      </div>`;
+    }).join('');
+    $('#st-chart').innerHTML = stChartSvg();
+    $('#st-hint').hidden = hasAny;
+
+    $('#st-prev').onclick = () => stGo(STATS.sel - 1);
+    $('#st-next').onclick = () => stGo(STATS.sel + 1);
+    $$('.st-hit', card).forEach((c) => (c.onclick = () => stGo(Number(c.dataset.off))));
+  }
+
+  function stGo(off) {
+    off = Math.max(-ST_MAX_BACK, Math.min(0, off));
+    if (off === STATS.sel) return;
+    STATS.sel = off;
+    if (off > STATS.end) STATS.end = off; // выбранная неделя должна быть видна на графике
+    if (off < STATS.end - (ST_WEEKS - 1)) STATS.end = off + (ST_WEEKS - 1);
+    STATS.end = Math.min(0, STATS.end);
+    paintStats();
+  }
+
+  async function renderStats() {
+    const head = '<div class="page-head"><a class="back-link" href="#profile">← Профиль</a><h1 class="page-title">Статистика чтения</h1></div>';
+    view.innerHTML = `${head}<p class="muted">Загрузка…</p>`;
+    try {
+      const d = await api('GET', '/api/read-stats');
+      STATS.days = d.days || {};
+    } catch (e) {
+      view.innerHTML = `${head}<p class="form-error">${esc(e.message)}</p>`;
+      return;
+    }
+    STATS.sel = 0;
+    STATS.end = 0;
+    view.innerHTML = `${head}
+      <div class="st-card" id="st-card">
+        <div class="st-top" id="st-head"></div>
+        <div class="st-days" id="st-days"></div>
+        <div class="st-chartbox" id="st-chart"></div>
+      </div>
+      <p class="muted small st-note" id="st-hint" hidden>Здесь появятся страницы, которые вы прочитаете. Статистика ведётся с момента её появления на сайте.</p>
+      <p class="muted small st-note">Листайте недели стрелками, свайпом или нажмите на точку графика. Страница считается один раз в день, а прыжок по ползунку чтением не считается.</p>`;
+    paintStats();
+    // свайп влево/вправо по карточке — переход между неделями
+    const card = $('#st-card');
+    let sx = null;
+    card.addEventListener('touchstart', (e) => { sx = e.touches[0].clientX; }, { passive: true });
+    card.addEventListener('touchend', (e) => {
+      if (sx == null) return;
+      const dx = e.changedTouches[0].clientX - sx;
+      sx = null;
+      if (Math.abs(dx) > 60) stGo(STATS.sel + (dx > 0 ? -1 : 1));
+    }, { passive: true });
+  }
+  document.addEventListener('keydown', (e) => {
+    if (state.route !== 'stats' || !$('#st-card') || e.target.matches?.('input,textarea,select')) return;
+    if (e.key === 'ArrowLeft') stGo(STATS.sel - 1);
+    else if (e.key === 'ArrowRight') stGo(STATS.sel + 1);
+  });
 
   /* ================= Редактирование профиля: аватарка, ник, пароль, номер ================= */
   // кружок с фото; пока фото грузится (или если его нет) видна первая буква ника
@@ -2463,7 +2674,7 @@
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'same-origin',
-      body: JSON.stringify({ page }),
+      body: JSON.stringify({ page, day: dayKey() }), // день — по часам устройства, для статистики чтения
       keepalive: true,
     }).catch(() => { R.dirty = true; });
     if (R.book) R.book.progress = { page, updatedAt: Date.now() };
