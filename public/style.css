@@ -147,8 +147,7 @@ button { cursor: pointer; }
   border-bottom: 1px solid var(--line);
 }
 .brand { display: flex; align-items: center; gap: 11px; text-decoration: none; line-height: 1.1; }
-.brand-tx { display: flex; flex-direction: column; }
-.brand-ico { flex: none; width: 56px; height: auto; color: var(--green); }
+.brand-tx { display: flex; flex-direction: column; align-items: flex-start; } /* арабское название и подпись — по одному левому краю */
 .brand-ar { font: 600 1.45rem/1.35 var(--font-brand); color: var(--green); }
 .brand-ru { font: 600 .78rem var(--font-body); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
 .nav { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
@@ -385,8 +384,7 @@ main { position: relative; z-index: 0; isolation: isolate; max-width: var(--maxw
   .top { padding-top: 8px; padding-bottom: 8px; }
   .nav a, .nav button { padding: 7px 9px; font-size: .88rem; }
   .brand-ar { font-size: 1.3rem; }
-  .brand { gap: 8px; }
-  .brand-ico { width: 54px; }
+  .brand-ru { letter-spacing: .09em; }
     .grid { grid-template-columns: repeat(auto-fill, minmax(138px, 1fr)); gap: 18px 12px; }
   .hero { padding-top: 44px; }
   .grid2 { grid-template-columns: 1fr; }
