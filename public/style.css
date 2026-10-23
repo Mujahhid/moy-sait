@@ -1220,9 +1220,8 @@ button.st-day { border: 0; background: none; padding: 0; margin: 0; font: inheri
 .st-pick-best { display: inline-grid; place-items: center; width: 18px; height: 18px; margin-left: 6px; border-radius: 50%; background: var(--ink); color: var(--paper); font-size: .65rem; vertical-align: 2px; }
 
 /* ---- окно «Лучшие читатели» ---- */
-.top-tabs { margin: 12px 0 4px; }
+.top-tabs { margin: 12px 0 8px; }
 .top-tabs .tab { cursor: pointer; }
-.top-cap { margin: 10px 2px 8px; }
 .top-table { width: 100%; table-layout: fixed; border-collapse: collapse; }
 .top-table .c-rank { width: 48px; }
 .top-table .c-pages { width: 96px; }
@@ -1240,4 +1239,3 @@ button.st-day { border: 0; background: none; padding: 0; margin: 0; font: inheri
 .top-table tr.me td:last-child { border-radius: 0 10px 10px 0; }
 .top-table tr.gap td { text-align: center; color: var(--muted); padding: 0; border-bottom: 0; line-height: 1; letter-spacing: .3em; }
 .top-empty { padding: 32px 14px; }
-.top-note { margin: 12px 2px 0; }

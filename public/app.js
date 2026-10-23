@@ -2100,7 +2100,6 @@
   // Рейтинг по прочитанным страницам. Администратор в нём не участвует — это решает сервер.
   const TOP = { tab: 'day', data: null };
   const TOP_TABS = [['day', 'День'], ['week', 'Неделя'], ['month', 'Месяц']];
-  const TOP_CAP = { day: 'Страниц прочитано сегодня', week: 'Страниц прочитано на этой неделе', month: 'Страниц прочитано в этом месяце' };
   const TOP_EMPTY = { day: 'Сегодня пока никто не читал.', week: 'На этой неделе пока никто не читал.', month: 'В этом месяце пока никто не читал.' };
   const TOP_MEDALS = ['🥇', '🥈', '🥉'];
 
@@ -2124,7 +2123,7 @@
     $('#top-tabs').innerHTML = TOP_TABS.map(([k, name]) =>
       `<button type="button" class="tab${k === TOP.tab ? ' active' : ''}" role="tab" aria-selected="${k === TOP.tab}" data-top="${k}">${name}</button>`).join('');
     const sec = d[TOP.tab];
-    let html = `<p class="muted small top-cap">${TOP_CAP[TOP.tab]}</p>`;
+    let html = '';
     if (!sec.items.length) {
       html += `<div class="empty top-empty">${TOP_EMPTY[TOP.tab]}</div>`;
     } else {
@@ -2135,7 +2134,6 @@
         : '';
       html += `<table class="top-table"><colgroup><col class="c-rank"><col><col class="c-pages"></colgroup><tbody>${rows}${mine}</tbody></table>`;
     }
-    if (state.me?.isAdmin) html += '<p class="muted small top-note">Администратор в рейтинге не участвует.</p>';
     $('#top-body').innerHTML = html;
   }
 
