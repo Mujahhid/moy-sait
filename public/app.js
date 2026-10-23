@@ -1540,7 +1540,7 @@
   /* ================= Статистика чтения: страницы по дням, неделям и месяцам ================= */
   // Режимы: week — неделя с понедельника, month — календарный месяц.
   // off — сдвиг от текущего периода: 0 — текущий, -1 — предыдущий и т.д.
-  const STATS = { days: {}, mode: 'week', sel: 0, end: 0, pts: [], W: 340 };
+  const STATS = { days: {}, mode: 'week', sel: 0, end: 0, pick: null, pts: [], W: 340 }; // pick — выбранный день («2026-10-23»)
   const ST_WD = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
   const ST_MON = ['янв', 'фев', 'мар', 'апр', 'мая', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
   const ST_MON_CAP = ['ЯНВ.', 'ФЕВР.', 'МАРТ', 'АПР.', 'МАЙ', 'ИЮНЬ', 'ИЮЛЬ', 'АВГ.', 'СЕНТ.', 'ОКТ.', 'НОЯБ.', 'ДЕК.'];
@@ -1554,8 +1554,8 @@
   const ST_AVG_CAP = { week: 'в среднем за день', month: 'в среднем за день' };
   const ST_PREV = { week: 'на прошлой неделе', month: 'в прошлом месяце' };
   const ST_NOTE = {
-    week: 'Недели листаются стрелками, свайпом или нажатием на график.',
-    month: 'Месяцы листаются стрелками, свайпом или нажатием на график.',
+    week: 'Нажмите на день, чтобы увидеть его страницы. Недели листаются стрелками, свайпом или нажатием на график.',
+    month: 'Нажмите на день, чтобы увидеть его страницы. Месяцы листаются стрелками, свайпом или нажатием на график.',
   };
   const stPad = (n) => String(n).padStart(2, '0');
   const stKey = (d) => `${d.getFullYear()}-${stPad(d.getMonth() + 1)}-${stPad(d.getDate())}`;
@@ -1686,6 +1686,22 @@
     </svg>`;
   }
 
+  // «Пт, 23 окт» (с годом, если не этот)
+  function stDayText(d) {
+    const yr = d.getFullYear() !== new Date().getFullYear() ? ` ${d.getFullYear()}` : '';
+    return `${ST_WD[(d.getDay() + 6) % 7]}, ${d.getDate()} ${ST_MON[d.getMonth()]}${yr}`;
+  }
+
+  // панель выбранного дня: показывается прямо в окне, под столбиками или календарём
+  function stPickHtml(p) {
+    const d = STATS.pick ? p.days.find((x) => x.k === STATS.pick) : null;
+    if (!d || d.future) return '';
+    const maxV = Math.max(0, ...p.days.map((x) => x.v));
+    const star = d.v > 0 && d.v === maxV ? ` <span class="st-pick-best" title="Больше всего за ${p.mode === 'month' ? 'месяц' : 'неделю'}">★</span>` : '';
+    return `<div class="st-pick-day">${esc(stDayText(d.d))}${d.today ? ' <span class="st-dotsep">•</span> сегодня' : ''}</div>
+      <div class="st-pick-val"><b>${stNum(d.v)}</b> ${d.v === 0 ? 'страниц — в этот день не читали' : 'стр. прочитано'}${star}</div>`;
+  }
+
   // столбцы Пн–Вс
   function stBarsHtml(w) {
     const maxV = Math.max(...w.days.map((d) => d.v));
@@ -1693,11 +1709,14 @@
     return w.days.map((d, i) => {
       const pct = d.v > 0 ? Math.max(14, Math.round((d.v / maxV) * 100)) : 0;
       const cls = d.future ? 'future' : d.v === 0 ? 'zero' : '';
-      return `<div class="st-day${d.today ? ' today' : ''}">
+      const on = d.k === STATS.pick;
+      const tag = d.future ? 'div' : 'button'; // будущие дни не нажимаются
+      const attrs = d.future ? '' : ` type="button" data-k="${d.k}" aria-pressed="${on}" aria-label="${stDayText(d.d)}: ${stNum(d.v)} стр."`;
+      return `<${tag} class="st-day${d.today ? ' today' : ''}${on ? ' sel' : ''}"${attrs}>
         <div class="st-wd">${ST_WD[i]}</div>
         <div class="st-val">${d.future ? '' : stNum(d.v)}</div>
         <div class="st-col"><div class="st-track ${cls}">${d.future ? '' : `<div class="st-fill" style="height:${pct}%"></div>`}${i === best ? '<span class="st-star" title="Больше всего за неделю">★</span>' : ''}</div></div>
-      </div>`;
+      </${tag}>`;
     }).join('');
   }
 
@@ -1711,8 +1730,9 @@
     p.days.forEach((d, i) => {
       if (d.future) { cells.push('<i class="st-pad"></i>'); return; }
       const a = d.v > 0 ? 0.3 + 0.7 * (d.v / maxV) : 0;
-      const cls = `st-cell${d.v > 0 ? ` on${a >= 0.62 ? ' hi' : ''}` : ' zero'}${d.today ? ' today' : ''}`;
-      cells.push(`<div class="${cls}" style="--a:${a.toFixed(2)}" role="img" aria-label="${d.d.getDate()} ${ST_MON[d.d.getMonth()]}: ${stNum(d.v)} стр."><span>${d.d.getDate()}</span>${i === best ? '<b class="st-cellstar">★</b>' : ''}</div>`);
+      const on = d.k === STATS.pick;
+      const cls = `st-cell${d.v > 0 ? ` on${a >= 0.62 ? ' hi' : ''}` : ' zero'}${d.today ? ' today' : ''}${on ? ' sel' : ''}`;
+      cells.push(`<button type="button" class="${cls}" style="--a:${a.toFixed(2)}" data-k="${d.k}" aria-pressed="${on}" aria-label="${stDayText(d.d)}: ${stNum(d.v)} стр."><span>${d.d.getDate()}</span>${i === best ? '<b class="st-cellstar">★</b>' : ''}</button>`);
     });
     while (cells.length % 7) cells.push('<i class="st-pad"></i>');
     const head = ST_WD.map((w) => `<div class="st-wd">${w}</div>`).join('');
@@ -1751,6 +1771,9 @@
       </div>`;
     $('#st-days').className = `st-days${mode === 'month' ? ' month' : ''}`;
     $('#st-days').innerHTML = mode === 'month' ? stMonthHtml(p) : stBarsHtml(p);
+    const pickHtml = stPickHtml(p);
+    $('#st-pick').innerHTML = pickHtml;
+    $('#st-pick').hidden = !pickHtml;
     $('#st-chart').innerHTML = stChartSvg();
     $('#st-hint').hidden = hasAny;
     $('#st-note').textContent = ST_NOTE[mode];
@@ -1783,7 +1806,17 @@
     off = Math.max(-ST_MAX[STATS.mode], Math.min(0, off));
     if (off === STATS.sel) return;
     STATS.sel = off;
+    STATS.pick = null; // новый период — выбранный день сбрасывается
     stFit();
+    paintStats();
+  }
+
+  // нажатие на день: показать его итог в окне; повторное нажатие на тот же день снимает выбор
+  function stPickDay(key) {
+    const p = stPeriod(STATS.mode, STATS.sel);
+    const d = p.days.find((x) => x.k === key);
+    if (!d || d.future) return;
+    STATS.pick = STATS.pick === key ? null : key;
     paintStats();
   }
 
@@ -1794,6 +1827,7 @@
     STATS.mode = mode;
     STATS.sel = 0;
     STATS.end = 0;
+    STATS.pick = null;
     paintStats();
   }
 
@@ -1812,11 +1846,13 @@
     STATS.mode = 'week';
     STATS.sel = 0;
     STATS.end = 0;
+    STATS.pick = null;
     body.innerHTML = `
       <div class="tabs st-seg" id="st-seg" role="tablist" aria-label="Период"></div>
       <div class="st-card" id="st-card">
         <div class="st-top" id="st-head"></div>
         <div class="st-days" id="st-days"></div>
+        <div class="st-pick" id="st-pick" hidden aria-live="polite"></div>
         <div class="st-chartbox" id="st-chart"></div>
       </div>
       <p class="muted small st-note" id="st-hint" hidden>Здесь появятся страницы, которые вы прочитаете. Статистика ведётся с момента её появления на сайте.</p>
@@ -1828,6 +1864,12 @@
     $('#st-seg').addEventListener('click', (e) => {
       const b = e.target.closest('[data-mode]');
       if (b) stSetMode(b.dataset.mode);
+    });
+    // нажатие на день (столбик недели или кружок месяца) — итог за этот день показывается тут же
+    $('#st-days').addEventListener('click', (e) => {
+      if (Date.now() - (STATS.swiped || 0) < 400) return; // это был свайп, а не нажатие
+      const b = e.target.closest('[data-k]');
+      if (b) stPickDay(b.dataset.k);
     });
     // нажатие на график — выбрать период
     $('#st-chart').addEventListener('click', (e) => {
