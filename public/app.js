@@ -337,12 +337,11 @@
   /* ================= Роутинг и страницы ================= */
   const view = $('#view');
 
-  const ROUTES = ['home', 'publishers', 'catalog', 'favorites', 'offline', 'profile', 'users', 'stats'];
+  const ROUTES = ['home', 'publishers', 'catalog', 'favorites', 'offline', 'profile', 'users'];
   function currentRoute() {
     const h = location.hash.replace(/^#/, '');
     const r = ROUTES.includes(h) ? h : 'home';
     if (r === 'profile' && !state.me) return 'home';
-    if (r === 'stats' && !state.me) return 'home';
     if (r === 'users' && !state.me?.isAdmin) return state.me ? 'catalog' : 'home'; // раздел только для администратора
     return r === 'home' && state.me ? 'catalog' : r; // «Главная» — только окно входа для гостя
   }
@@ -351,7 +350,7 @@
 
   function updateNav() {
     $('.tabbar [data-nav=home]').hidden = !!state.me;
-    const navRoute = state.route === 'users' || state.route === 'stats' ? 'profile' : state.route; // подразделы профиля
+    const navRoute = state.route === 'users' ? 'profile' : state.route; // подразделы профиля
     $$('.tabbar [data-nav]').forEach((el) => {
       el.classList.toggle('active', el.dataset.nav === navRoute);
       if (el.tagName === 'A') el.setAttribute('aria-current', el.dataset.nav === navRoute ? 'page' : 'false');
@@ -366,7 +365,7 @@
   async function render() {
     state.route = currentRoute();
     if (state.me && off.ok && !off.scanned) { off.scanned = true; await offlineScan(); }
-    if (state.me && location.hash !== '#' + state.route && !['publishers', 'favorites', 'offline', 'profile', 'users', 'stats'].includes(state.route)) {
+    if (state.me && location.hash !== '#' + state.route && !['publishers', 'favorites', 'offline', 'profile', 'users'].includes(state.route)) {
       history.replaceState(null, '', '#' + state.route);
     }
     if (state.route !== 'publishers') state.publisher = '';
@@ -380,7 +379,6 @@
       else if (state.route === 'offline') await renderOffline();
       else if (state.route === 'profile') await renderProfile();
       else if (state.route === 'users') await renderUsers();
-      else if (state.route === 'stats') await renderStats();
       else await renderFavorites();
     } catch (e) {
       view.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
@@ -1499,7 +1497,7 @@
       </div>
       <div class="profile-actions top">
         <button type="button" class="btn ghost" id="p-edit">Редактировать профиль</button>
-        <a class="btn ghost" id="p-stats" href="#stats">Статистика</a>
+        <button type="button" class="btn ghost" id="p-stats">Статистика</button>
         <button type="button" class="btn ghost" id="p-logout">Выйти</button>
       </div>
       <div class="sync-line">✓ Прогресс и «Хочу прочитать» синхронизированы · ${hhmm}</div>
@@ -1527,6 +1525,7 @@
     const pm = $('#p-manage');
     if (pm) pm.onclick = () => openManage();
     $('#p-edit').onclick = () => openEditProfile();
+    $('#p-stats').onclick = () => openStats();
     $('#p-logout').onclick = async () => {
       try { await api('POST', '/api/logout'); } catch { /* всё равно выходим */ }
       state.me = null;
@@ -1624,6 +1623,8 @@
     const x = (i) => padX + (i * (W - padX * 2)) / (ST_WEEKS - 1);
     const y = (v) => bottom - (v / maxT) * (bottom - top);
     const pts = weeks.map((w, i) => ({ x: x(i), y: y(w.total), w }));
+    STATS.W = W;
+    STATS.pts = pts.map((p) => ({ x: p.x, off: p.w.off })); // для выбора недели нажатием на график
     const line = stSmooth(pts, top, bottom);
     const area = `${line} L${pts[pts.length - 1].x.toFixed(1)},${bottom} L${pts[0].x.toFixed(1)},${bottom} Z`;
     let labels = '';
@@ -1640,14 +1641,13 @@
         ? `<circle class="st-dot-ring" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="9"/><circle class="st-dot-core" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="4.5"/>`
         : `<circle class="st-dot" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="4.5"/>`;
     }).join('');
-    const hits = pts.map((p) => `<circle class="st-hit" data-off="${p.w.off}" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="16"><title>${esc(stRange(p.w.start))}: ${stNum(p.w.total)} стр.</title></circle>`).join('');
-    return `<svg viewBox="0 0 ${W} ${H}" class="st-svg" role="img" aria-label="Страницы по неделям">
-      <defs><linearGradient id="st-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#19c8ff" stop-opacity=".45"/><stop offset="1" stop-color="#19c8ff" stop-opacity="0"/></linearGradient></defs>
+    return `<svg viewBox="0 0 ${W} ${H}" class="st-svg" aria-label="Страницы по неделям">
+      <defs><linearGradient id="st-fill" x1="0" y1="0" x2="0" y2="1"><stop class="st-s0" offset="0"/><stop class="st-s1" offset="1"/></linearGradient></defs>
       ${grid}${labels}
       <path d="${area}" fill="url(#st-fill)"/>
       <line class="st-mean" x1="${padX}" y1="${y(mean).toFixed(1)}" x2="${W - padX}" y2="${y(mean).toFixed(1)}"/>
       <path class="st-line" d="${line}"/>
-      ${dots}${hits}
+      ${dots}
     </svg>`;
   }
 
@@ -1694,7 +1694,18 @@
 
     $('#st-prev').onclick = () => stGo(STATS.sel - 1);
     $('#st-next').onclick = () => stGo(STATS.sel + 1);
-    $$('.st-hit', card).forEach((c) => (c.onclick = () => stGo(Number(c.dataset.off))));
+  }
+
+  // нажатие в любом месте графика выбирает ближайшую по горизонтали неделю — попадать точно в кружок не нужно
+  function stPick(clientX) {
+    const svg = $('#st-chart .st-svg');
+    if (!svg || !STATS.pts || !STATS.pts.length) return;
+    const r = svg.getBoundingClientRect();
+    if (!r.width) return;
+    const vx = ((clientX - r.left) / r.width) * STATS.W;
+    let best = STATS.pts[0];
+    for (const p of STATS.pts) if (Math.abs(p.x - vx) < Math.abs(best.x - vx)) best = p;
+    stGo(best.off);
   }
 
   function stGo(off) {
@@ -1707,40 +1718,51 @@
     paintStats();
   }
 
-  async function renderStats() {
-    const head = '<div class="page-head"><a class="back-link" href="#profile">← Профиль</a><h1 class="page-title">Статистика чтения</h1></div>';
-    view.innerHTML = `${head}<p class="muted">Загрузка…</p>`;
+  // окно «Статистика» открывается из профиля, как «Редактировать профиль»
+  async function openStats() {
+    const body = $('#stats-body');
+    body.innerHTML = '<p class="muted">Загрузка…</p>';
+    openModal('m-stats');
     try {
       const d = await api('GET', '/api/read-stats');
       STATS.days = d.days || {};
     } catch (e) {
-      view.innerHTML = `${head}<p class="form-error">${esc(e.message)}</p>`;
+      body.innerHTML = `<p class="form-error">${esc(e.message)}</p>`;
       return;
     }
     STATS.sel = 0;
     STATS.end = 0;
-    view.innerHTML = `${head}
+    body.innerHTML = `
       <div class="st-card" id="st-card">
         <div class="st-top" id="st-head"></div>
         <div class="st-days" id="st-days"></div>
         <div class="st-chartbox" id="st-chart"></div>
       </div>
       <p class="muted small st-note" id="st-hint" hidden>Здесь появятся страницы, которые вы прочитаете. Статистика ведётся с момента её появления на сайте.</p>
-      <p class="muted small st-note">Листайте недели стрелками, свайпом или нажмите на точку графика. Страница считается один раз в день, а прыжок по ползунку чтением не считается.</p>`;
+      <p class="muted small st-note">Недели листаются стрелками, свайпом или нажатием на график. Страница считается один раз в день, а прыжок по ползунку чтением не считается.</p>`;
     paintStats();
-    // свайп влево/вправо по карточке — переход между неделями
     const card = $('#st-card');
+    // нажатие на график — выбрать неделю
+    $('#st-chart').addEventListener('click', (e) => {
+      if (Date.now() - (STATS.swiped || 0) < 400) return; // это был свайп, а не нажатие
+      stPick(e.clientX);
+    });
+    // свайп влево/вправо по карточке — переход между неделями
     let sx = null;
     card.addEventListener('touchstart', (e) => { sx = e.touches[0].clientX; }, { passive: true });
     card.addEventListener('touchend', (e) => {
       if (sx == null) return;
       const dx = e.changedTouches[0].clientX - sx;
       sx = null;
-      if (Math.abs(dx) > 60) stGo(STATS.sel + (dx > 0 ? -1 : 1));
+      if (Math.abs(dx) > 60) {
+        STATS.swiped = Date.now();
+        stGo(STATS.sel + (dx > 0 ? -1 : 1));
+      }
     }, { passive: true });
   }
   document.addEventListener('keydown', (e) => {
-    if (state.route !== 'stats' || !$('#st-card') || e.target.matches?.('input,textarea,select')) return;
+    const m = $('#m-stats');
+    if (!m || m.hidden || !$('#st-card') || e.target.matches?.('input,textarea,select')) return;
     if (e.key === 'ArrowLeft') stGo(STATS.sel - 1);
     else if (e.key === 'ArrowRight') stGo(STATS.sel + 1);
   });
