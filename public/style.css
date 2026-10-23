@@ -1175,15 +1175,10 @@ main { position: relative; z-index: 0; isolation: isolate; max-width: var(--maxw
   .st-track { width: min(100%, 28px); }
 }
 
-/* ---- статистика: переключатель Д / Н / М, календарь месяца, режим «день» ---- */
+/* ---- статистика: переключатель Н / М и календарь месяца ---- */
 .st-seg { width: fit-content; margin: 10px auto 4px; }
 .st-seg .tab { min-width: 66px; padding: 8px 0; font: 600 1.1rem var(--font-body); cursor: pointer; }
 .st-seg .tab.active { box-shadow: 0 1px 3px rgba(0, 0, 0, .18); }
-
-/* столбики недели в режиме «день» — кнопки */
-button.st-day { border: 0; background: none; padding: 0; margin: 0; font: inherit; color: inherit; cursor: pointer; -webkit-tap-highlight-color: transparent; }
-.st-day.sel .st-wd { background: var(--gold); color: var(--card); }
-.st-day.sel .st-track { box-shadow: 0 0 0 2px var(--gold); }
 
 /* месяц: шапка Пн–Вс и кружки по дням */
 .st-days.month { display: block; }
@@ -1194,12 +1189,11 @@ button.st-day { border: 0; background: none; padding: 0; margin: 0; font: inheri
 .st-mgrid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px 6px; }
 .st-pad { display: grid; place-items: center; aspect-ratio: 1; max-width: 46px; width: 100%; margin: 0 auto; }
 .st-pad::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--line); }
-.st-cell { position: relative; isolation: isolate; display: grid; place-items: center; aspect-ratio: 1; width: 100%; max-width: 46px; margin: 0 auto; padding: 0; border-radius: 50%; border: 1px solid var(--line); background: transparent; color: var(--muted); font: 600 .95rem var(--font-body); font-variant-numeric: tabular-nums; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.st-cell { position: relative; isolation: isolate; display: grid; place-items: center; aspect-ratio: 1; width: 100%; max-width: 46px; margin: 0 auto; padding: 0; border-radius: 50%; border: 1px solid var(--line); background: transparent; color: var(--muted); font: 600 .95rem var(--font-body); font-variant-numeric: tabular-nums; }
 .st-cell::before { content: ''; position: absolute; inset: -1px; border-radius: 50%; background: var(--gold); opacity: var(--a, 0); z-index: -1; }
 .st-cell.on { color: var(--ink); border-color: transparent; }
 .st-cell.on.hi { color: var(--card); }
 .st-cell.today { box-shadow: 0 0 0 2px var(--paper), 0 0 0 4px var(--gold); }
-.st-cell:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
 .st-cellstar { position: absolute; left: 50%; bottom: -3px; transform: translateX(-50%); width: 15px; height: 15px; border-radius: 50%; background: var(--ink); color: var(--paper); display: grid; place-items: center; font-size: .55rem; line-height: 1; font-weight: 400; }
 
 /* график по месяцам: название выбранного месяца в «таблетке» */

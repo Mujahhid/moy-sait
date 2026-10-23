@@ -1538,7 +1538,7 @@
   }
 
   /* ================= Статистика чтения: страницы по дням, неделям и месяцам ================= */
-  // Режимы: day — один день, week — неделя с понедельника, month — календарный месяц.
+  // Режимы: week — неделя с понедельника, month — календарный месяц.
   // off — сдвиг от текущего периода: 0 — текущий, -1 — предыдущий и т.д.
   const STATS = { days: {}, mode: 'week', sel: 0, end: 0, pts: [], W: 340 };
   const ST_WD = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
@@ -1547,16 +1547,15 @@
   const ST_MON_SHORT = ['янв.', 'февр.', 'март', 'апр.', 'май', 'июнь', 'июль', 'авг.', 'сент.', 'окт.', 'нояб.', 'дек.'];
   const ST_MON_3 = ['ЯНВ', 'ФЕВ', 'МАР', 'АПР', 'МАЙ', 'ИЮН', 'ИЮЛ', 'АВГ', 'СЕН', 'ОКТ', 'НОЯ', 'ДЕК'];
   const ST_N = 10; // сколько точек на графике
-  const ST_MAX = { day: 364, week: 52, month: 12 }; // насколько далеко назад можно листать
-  const ST_MODES = [['day', 'Д', 'День'], ['week', 'Н', 'Неделя'], ['month', 'М', 'Месяц']];
-  const ST_REL = { day: 'Сегодня', week: 'Эта неделя', month: 'Этот месяц' };
-  const ST_TOTAL_CAP = { day: 'страниц за день', week: 'страниц за неделю', month: 'страниц за месяц' };
-  const ST_AVG_CAP = { day: 'среднее за 7 дней до этого', week: 'в среднем за день', month: 'в среднем за день' };
+  const ST_MAX = { week: 52, month: 12 }; // насколько далеко назад можно листать
+  const ST_MODES = [['week', 'Н', 'Неделя'], ['month', 'М', 'Месяц']];
+  const ST_REL = { week: 'Эта неделя', month: 'Этот месяц' };
+  const ST_TOTAL_CAP = { week: 'страниц за неделю', month: 'страниц за месяц' };
+  const ST_AVG_CAP = { week: 'в среднем за день', month: 'в среднем за день' };
   const ST_PREV = { week: 'на прошлой неделе', month: 'в прошлом месяце' };
   const ST_NOTE = {
-    day: 'Дни листаются стрелками, свайпом, нажатием на график или на столбик недели.',
     week: 'Недели листаются стрелками, свайпом или нажатием на график.',
-    month: 'Нажмите на день, чтобы открыть его. Месяцы листаются стрелками, свайпом или нажатием на график.',
+    month: 'Месяцы листаются стрелками, свайпом или нажатием на график.',
   };
   const stPad = (n) => String(n).padStart(2, '0');
   const stKey = (d) => `${d.getFullYear()}-${stPad(d.getMonth() + 1)}-${stPad(d.getDate())}`;
@@ -1564,7 +1563,6 @@
   const stMonday = (d) => stAdd(d, -((d.getDay() + 6) % 7));
   const stNum = (n) => Number(n).toLocaleString('ru-RU');
   const stToday = () => { const t = new Date(); return new Date(t.getFullYear(), t.getMonth(), t.getDate()); };
-  const stDayOff = (d) => Math.round((d - stToday()) / 864e5); // сколько дней от сегодня (назад — отрицательное)
 
   // первый день, в который есть чтение: раньше этого дня среднее не считаем
   function stFirstKey() {
@@ -1572,16 +1570,14 @@
     return keys[0] || stKey(stToday());
   }
 
-  // Один период: дни, сумма страниц и среднее в день.
-  // Для дня «среднее» — средний день за 7 дней до него (с первого дня чтения): с ним сравнивается сам день.
+  // Один период (неделя или месяц): дни, сумма страниц и среднее в день.
   function stPeriod(mode, off) {
     const today = stToday();
     const todayKey = stKey(today);
     const first = stFirstKey();
     let start;
     let count;
-    if (mode === 'day') { start = stAdd(today, off); count = 1; }
-    else if (mode === 'week') { start = stAdd(stMonday(today), off * 7); count = 7; }
+    if (mode === 'week') { start = stAdd(stMonday(today), off * 7); count = 7; }
     else {
       start = new Date(today.getFullYear(), today.getMonth() + off, 1);
       count = new Date(start.getFullYear(), start.getMonth() + 1, 0).getDate();
@@ -1593,26 +1589,14 @@
       days.push({ d, k, v: STATS.days[k] || 0, future: k > todayKey, today: k === todayKey, before: k < first });
     }
     const total = days.reduce((s, x) => s + x.v, 0);
-    let avg;
-    let hasData;
-    if (mode === 'day') {
-      const prevs = [];
-      for (let i = 1; i <= 7; i++) {
-        const k = stKey(stAdd(start, -i));
-        if (k >= first) prevs.push(STATS.days[k] || 0);
-      }
-      avg = prevs.length ? Math.round(prevs.reduce((s, v) => s + v, 0) / prevs.length) : 0;
-      hasData = prevs.length > 0;
-    } else {
-      // среднее за день: только дни, которые уже прошли и не раньше первого чтения; сегодняшний день без чтения ещё не закончился
-      let counted = days.filter((x) => !x.future && !x.before);
-      if (off === 0 && counted.length > 1) {
-        const last = counted[counted.length - 1];
-        if (last.today && last.v === 0) counted = counted.slice(0, -1);
-      }
-      avg = counted.length ? Math.round(total / counted.length) : 0;
-      hasData = days[days.length - 1].k >= first; // период не целиком раньше первого чтения
+    // среднее за день: только дни, которые уже прошли и не раньше первого чтения; сегодняшний день без чтения ещё не закончился
+    let counted = days.filter((x) => !x.future && !x.before);
+    if (off === 0 && counted.length > 1) {
+      const last = counted[counted.length - 1];
+      if (last.today && last.v === 0) counted = counted.slice(0, -1);
     }
+    const avg = counted.length ? Math.round(total / counted.length) : 0;
+    const hasData = days[days.length - 1].k >= first; // период не целиком раньше первого чтения
     return { mode, off, start, days, total, avg, hasData };
   }
 
@@ -1624,13 +1608,10 @@
       : `${start.getDate()} ${ST_MON[start.getMonth()]} – ${e.getDate()} ${ST_MON[e.getMonth()]}${yr}`;
   }
 
-  // подпись периода: день — «23 окт, пт», неделя — даты, месяц — «окт. 2026 г.»
+  // подпись периода: неделя — даты, месяц — «окт. 2026 г.»
   function stLabel(p) {
     const s = p.start;
-    if (p.mode === 'month') return `${ST_MON_SHORT[s.getMonth()]} ${s.getFullYear()} г.`;
-    if (p.mode === 'week') return stRange(s);
-    const yr = s.getFullYear() !== new Date().getFullYear() ? ` ${s.getFullYear()}` : '';
-    return `${s.getDate()} ${ST_MON[s.getMonth()]}${yr}, ${ST_WD[(s.getDay() + 6) % 7].toLowerCase()}`;
+    return p.mode === 'month' ? `${ST_MON_SHORT[s.getMonth()]} ${s.getFullYear()} г.` : stRange(s);
   }
 
   function stSmooth(pts, top, bottom) {
@@ -1705,24 +1686,18 @@
     </svg>`;
   }
 
-  // столбцы Пн–Вс. В режиме «день» показывается неделя выбранного дня, столбцы можно нажимать
-  function stBarsHtml(p) {
-    const isDay = p.mode === 'day';
-    const w = isDay ? stPeriod('week', Math.round((stMonday(p.start) - stMonday(stToday())) / 6048e5)) : p;
-    const selKey = isDay ? p.days[0].k : '';
+  // столбцы Пн–Вс
+  function stBarsHtml(w) {
     const maxV = Math.max(...w.days.map((d) => d.v));
     const best = maxV > 0 ? w.days.findIndex((d) => d.v === maxV) : -1;
     return w.days.map((d, i) => {
       const pct = d.v > 0 ? Math.max(14, Math.round((d.v / maxV) * 100)) : 0;
       const cls = d.future ? 'future' : d.v === 0 ? 'zero' : '';
-      const click = isDay && !d.future;
-      const tag = click ? 'button' : 'div';
-      const attrs = click ? ` type="button" data-day="${stDayOff(d.d)}" aria-label="${d.d.getDate()} ${ST_MON[d.d.getMonth()]}: ${stNum(d.v)} стр."` : '';
-      return `<${tag} class="st-day${d.today ? ' today' : ''}${d.k === selKey ? ' sel' : ''}"${attrs}>
+      return `<div class="st-day${d.today ? ' today' : ''}">
         <div class="st-wd">${ST_WD[i]}</div>
         <div class="st-val">${d.future ? '' : stNum(d.v)}</div>
         <div class="st-col"><div class="st-track ${cls}">${d.future ? '' : `<div class="st-fill" style="height:${pct}%"></div>`}${i === best ? '<span class="st-star" title="Больше всего за неделю">★</span>' : ''}</div></div>
-      </${tag}>`;
+      </div>`;
     }).join('');
   }
 
@@ -1737,7 +1712,7 @@
       if (d.future) { cells.push('<i class="st-pad"></i>'); return; }
       const a = d.v > 0 ? 0.3 + 0.7 * (d.v / maxV) : 0;
       const cls = `st-cell${d.v > 0 ? ` on${a >= 0.62 ? ' hi' : ''}` : ' zero'}${d.today ? ' today' : ''}`;
-      cells.push(`<button type="button" class="${cls}" style="--a:${a.toFixed(2)}" data-day="${stDayOff(d.d)}" aria-label="${d.d.getDate()} ${ST_MON[d.d.getMonth()]}: ${stNum(d.v)} стр."><span>${d.d.getDate()}</span>${i === best ? '<b class="st-cellstar">★</b>' : ''}</button>`);
+      cells.push(`<div class="${cls}" style="--a:${a.toFixed(2)}" role="img" aria-label="${d.d.getDate()} ${ST_MON[d.d.getMonth()]}: ${stNum(d.v)} стр."><span>${d.d.getDate()}</span>${i === best ? '<b class="st-cellstar">★</b>' : ''}</div>`);
     });
     while (cells.length % 7) cells.push('<i class="st-pad"></i>');
     const head = ST_WD.map((w) => `<div class="st-wd">${w}</div>`).join('');
@@ -1749,18 +1724,10 @@
     if (!card) return;
     const mode = STATS.mode;
     const p = stPeriod(mode, STATS.sel);
-    // стрелка. Неделя и месяц: среднее за день сравниваем с прошлым периодом. День: сам день сравниваем с обычным днём.
-    // Больше — зелёная вверх, меньше — красная вниз
+    // стрелка: среднее за день сравниваем с прошлым периодом. Больше — зелёная вверх, меньше — красная вниз
     let cmp = null;
-    if (mode === 'day') {
-      // сегодняшний день ещё не закончился: «меньше обычного» до вечера не показываем
-      if (p.hasData && p.total !== p.avg && !(STATS.sel === 0 && p.total < p.avg)) {
-        cmp = [p.total > p.avg, `чем обычно (${stNum(p.avg)} стр. в день)`];
-      }
-    } else {
-      const prev = stPeriod(mode, STATS.sel - 1);
-      if (prev.hasData && p.avg !== prev.avg) cmp = [p.avg > prev.avg, `чем ${ST_PREV[mode]} (${stNum(prev.avg)} стр. в день)`];
-    }
+    const prev = stPeriod(mode, STATS.sel - 1);
+    if (prev.hasData && p.avg !== prev.avg) cmp = [p.avg > prev.avg, `чем ${ST_PREV[mode]} (${stNum(prev.avg)} стр. в день)`];
     const trend = cmp
       ? `<i class="st-trend ${cmp[0] ? 'up' : 'down'}" title="${cmp[0] ? 'Больше' : 'Меньше'}, ${cmp[1]}">${cmp[0] ? ST_ARROW_UP : ST_ARROW_DOWN}</i>`
       : '';
@@ -1820,14 +1787,13 @@
     paintStats();
   }
 
-  // переключатель Д / Н / М. sel — какой период открыть (для дня из календаря — этот день)
-  function stSetMode(mode, sel = 0) {
+  // переключатель Н / М: открывается текущая неделя или текущий месяц
+  function stSetMode(mode) {
     if (!ST_MAX[mode]) return;
-    if (mode === STATS.mode && sel === STATS.sel) return;
+    if (mode === STATS.mode) return;
     STATS.mode = mode;
-    STATS.sel = Math.max(-ST_MAX[mode], Math.min(0, sel));
-    STATS.end = Math.min(0, STATS.sel + (ST_N >> 1)); // выбранный — ближе к середине графика
-    stFit();
+    STATS.sel = 0;
+    STATS.end = 0;
     paintStats();
   }
 
@@ -1858,19 +1824,10 @@
       <p class="muted small st-note">Страница считается один раз в день, а прыжок по ползунку чтением не считается.</p>`;
     paintStats();
     const card = $('#st-card');
-    // Д / Н / М
+    // Н / М
     $('#st-seg').addEventListener('click', (e) => {
       const b = e.target.closest('[data-mode]');
       if (b) stSetMode(b.dataset.mode);
-    });
-    // день в календаре месяца — открыть его; столбик недели в режиме «день» — выбрать этот день
-    $('#st-days').addEventListener('click', (e) => {
-      if (Date.now() - (STATS.swiped || 0) < 400) return;
-      const b = e.target.closest('[data-day]');
-      if (!b) return;
-      const off = Number(b.dataset.day);
-      if (STATS.mode === 'day') stGo(off);
-      else stSetMode('day', off);
     });
     // нажатие на график — выбрать период
     $('#st-chart').addEventListener('click', (e) => {
