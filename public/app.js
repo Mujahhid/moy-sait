@@ -2388,6 +2388,7 @@
       return;
     }
     Object.assign(R, { book, lib: pdfjsLib, doc: null, page: 1, spread: { l: 1, r: 0 }, total: book.pages || 0, ref: null, lay: null, domKey: '', pending: null, flipping: false });
+    R.mode = 'fit'; // каждая книга открывается в режиме «вписать страницу в экран»
     R.nav++;
     const session = ++R.session;
     if (R.loading) { try { R.loading.destroy(); } catch { /* ok */ } R.loading = null; }
@@ -2812,7 +2813,6 @@
       $('#r-next').disabled = last >= R.total;
       if (!SCRUB.on) paintScrub(first, last);
     }
-    $('#r-fit').classList.toggle('active', R.mode === 'fit');
     const bmBtn = $('#r-bookmode');
     bmBtn.classList.toggle('active', R.bookMode);
     bmBtn.setAttribute('aria-pressed', String(R.bookMode));
@@ -3330,7 +3330,6 @@
   $('#r-next').onclick = next;
   $('#r-zoom-in').onclick = () => zoomBy(1.2);
   $('#r-zoom-out').onclick = () => zoomBy(1 / 1.2);
-  $('#r-fit').onclick = () => { R.mode = 'fit'; updateReaderUi(); relayout(); };
   $('#r-night').onclick = () => setNight(!R.night);
   $('#r-bookmode').onclick = () => {
     R.bookMode = !R.bookMode;
