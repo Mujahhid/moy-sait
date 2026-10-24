@@ -91,11 +91,29 @@
         <button type="button" class="icon-btn" id="r-bm" title="Закладка на этой странице (B)" aria-label="Закладка на этой странице" aria-pressed="false">
           <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M6.5 3.5h11v17L12 16.2 6.5 20.5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
         </button>
+        <button type="button" class="icon-btn" id="r-ink" title="Маркер: рисовать на странице" aria-label="Маркер" aria-pressed="false">
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M15.2 3.8l5 5L9 20l-5.6 1 1-5.6z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M13 6l5 5" fill="none" stroke="currentColor" stroke-width="1.8"/><rect x="3" y="22" width="14" height="2" rx="1" fill="#ffd60a"/></svg>
+        </button>
         <button type="button" class="icon-btn" id="r-notes" title="Закладки и выделения" aria-label="Закладки и выделения">
           <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M5 7h14M5 12h14M5 17h9" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
         </button>
         <button type="button" class="icon-btn" id="r-night" title="Ночной режим" aria-label="Ночной режим">☾</button>
       </div>
+    </div>
+    <div class="ink-bar" id="ink-bar" hidden role="toolbar" aria-label="Маркер">
+      <button type="button" class="ink-c" data-ic="yellow" title="Жёлтый" aria-label="Жёлтый"></button>
+      <button type="button" class="ink-c" data-ic="green" title="Зелёный" aria-label="Зелёный"></button>
+      <button type="button" class="ink-c" data-ic="blue" title="Синий" aria-label="Синий"></button>
+      <button type="button" class="ink-c" data-ic="pink" title="Розовый" aria-label="Розовый"></button>
+      <button type="button" class="ink-c" data-ic="orange" title="Оранжевый" aria-label="Оранжевый"></button>
+      <button type="button" class="ink-size" id="ink-size" title="Толщина маркера" aria-label="Толщина маркера"><i></i></button>
+      <button type="button" class="ink-tool" id="ink-erase" title="Стёрка: проведите по линии, чтобы стереть" aria-label="Стёрка" aria-pressed="false">
+        <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M8.5 20h11M4.2 14.6l8.6-8.6a1.8 1.8 0 012.5 0l3.7 3.7a1.8 1.8 0 010 2.5L11.5 20H8.3l-4.1-4.1a1.8 1.8 0 010-1.3z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/><path d="M9 9.8l5.2 5.2" fill="none" stroke="currentColor" stroke-width="1.7"/></svg>
+      </button>
+      <button type="button" class="ink-tool" id="ink-undo" title="Отменить последнее действие" aria-label="Отменить" disabled>
+        <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M9 7L5 11l4 4M5 11h8.5a5 5 0 010 10H11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" transform="translate(0 -3)"/></svg>
+      </button>
+      <button type="button" class="ink-done" id="ink-done">Готово</button>
     </div>
     <button type="button" class="icon-btn full-exit" id="r-full-exit" title="Выйти из полного экрана" aria-label="Выйти из полного экрана">⛶</button>
     <div class="reader-stage" id="r-stage" tabindex="-1">

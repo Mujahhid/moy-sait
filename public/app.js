@@ -2303,7 +2303,13 @@
   const SAVED_MSG = 'Книга сохранена на устройстве и откроется без интернета';
   const BM_SVG = '<svg viewBox="0 0 24 32" aria-hidden="true"><path d="M3 1.5h18v28L12 23 3 29.5z"/></svg>';
   const TOPIC_MAX = 40;
-  const emptyAnn = () => ({ bookmarks: [], highlights: [], topics: {}, legendDone: false, updatedAt: 0, dirty: false, rev: 0 });
+  // маркер: цвета, толщины (доля ширины страницы) и рисунки на страницах
+  const INK_COLORS = ['yellow', 'green', 'blue', 'pink', 'orange'];
+  const INK_HEX = { yellow: '#ffd60a', green: '#5fd94a', blue: '#3db8ff', pink: '#ff6fb5', orange: '#ff9a1f' };
+  const INK_NAMES = { yellow: 'Жёлтый', green: 'Зелёный', blue: 'Синий', pink: 'Розовый', orange: 'Оранжевый' };
+  const INK_SIZES = [0.010, 0.020, 0.036];
+  const INK_SIZE_NAMES = ['Тонкий маркер', 'Средний маркер', 'Толстый маркер'];
+  const emptyAnn = () => ({ bookmarks: [], highlights: [], strokes: [], topics: {}, legendDone: false, updatedAt: 0, dirty: false, rev: 0 });
   // темы выделений: название для каждого цвета (хранится вместе с выделениями книги)
   const cleanTopics = (t) => {
     const o = {};
@@ -2328,6 +2334,11 @@
     night: lsGet('reader_night') === '1',
     ann: emptyAnn(), annTimer: null, annReady: false, legendForce: false,
     popSel: null, popHl: null, pointerDown: false,
+    ink: {
+      on: false, tool: 'draw', hist: [], cur: null,
+      color: INK_COLORS.includes(lsGet('ink_color')) ? lsGet('ink_color') : 'yellow',
+      size: ['0', '1', '2'].includes(lsGet('ink_size')) ? Number(lsGet('ink_size')) : 1,
+    },
   };
   const reader = $('#reader');
   const stage = $('#r-stage');
@@ -2389,6 +2400,7 @@
     }
     Object.assign(R, { book, lib: pdfjsLib, doc: null, page: 1, spread: { l: 1, r: 0 }, total: book.pages || 0, ref: null, lay: null, domKey: '', pending: null, flipping: false });
     R.mode = 'fit'; // каждая книга открывается в режиме «вписать страницу в экран»
+    inkExit();
     R.nav++;
     const session = ++R.session;
     if (R.loading) { try { R.loading.destroy(); } catch { /* ok */ } R.loading = null; }
@@ -2480,6 +2492,7 @@
     syncLegend();
     hidePop();
     closePanel();
+    inkExit();
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
     R.pseudoFull = false;
     reader.classList.remove('full');
@@ -2556,7 +2569,7 @@
     c.style.width = `${ent.w}px`;
     c.style.height = `${ent.h}px`;
     c.getContext('2d').drawImage(ent.canvas, 0, 0);
-    pgi.append(c, mk('hl-layer'), mk('textLayer'));
+    pgi.append(c, mk('hl-layer'), mk('ink-layer'), mk('textLayer'));
     const bm = mk('pg-bm', 'button');
     bm.type = 'button';
     bm.dataset.bm = n;
@@ -2906,7 +2919,7 @@
   /* ---------- Закладки и выделения (хранятся в аккаунте + копия на устройстве) ---------- */
   const annKey = (bookId) => `ann_${state.me?.id ?? 'x'}_${bookId}`;
   function annStore(bookId, a) {
-    lsSet(annKey(bookId), JSON.stringify({ bookmarks: a.bookmarks, highlights: a.highlights, topics: a.topics, legendDone: a.legendDone, updatedAt: a.updatedAt, dirty: a.dirty }));
+    lsSet(annKey(bookId), JSON.stringify({ bookmarks: a.bookmarks, highlights: a.highlights, strokes: a.strokes, topics: a.topics, legendDone: a.legendDone, updatedAt: a.updatedAt, dirty: a.dirty }));
   }
 
   function annTouch() {
@@ -2929,7 +2942,7 @@
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
-        body: JSON.stringify({ bookmarks: a.bookmarks, highlights: a.highlights, topics: a.topics, legendDone: a.legendDone }),
+        body: JSON.stringify({ bookmarks: a.bookmarks, highlights: a.highlights, strokes: a.strokes, topics: a.topics, legendDone: a.legendDone }),
         keepalive,
       });
       if (!res.ok) throw new Error('save');
@@ -2946,6 +2959,7 @@
     R.ann = {
       bookmarks: Array.isArray(local?.bookmarks) ? local.bookmarks : [],
       highlights: Array.isArray(local?.highlights) ? local.highlights : [],
+      strokes: Array.isArray(local?.strokes) ? local.strokes : [],
       topics: cleanTopics(local?.topics),
       legendDone: !!local?.legendDone,
       updatedAt: local?.updatedAt || 0,
@@ -2960,7 +2974,7 @@
       if (session !== R.session) return;
       if (R.ann.dirty) { annPush(); return; } // на устройстве есть несохранённые правки — они главнее
       R.ann = {
-        bookmarks: srv.bookmarks || [], highlights: srv.highlights || [],
+        bookmarks: srv.bookmarks || [], highlights: srv.highlights || [], strokes: srv.strokes || [],
         topics: cleanTopics(srv.topics), legendDone: !!srv.legendDone,
         updatedAt: srv.updatedAt || 0, dirty: false, rev: 0,
       };
@@ -3017,6 +3031,19 @@
     layer.innerHTML = R.ann.highlights.filter((h) => h.page === n).map((h) => h.rects.map((r) =>
       `<div class="hl c-${esc(h.color)}" style="left:${r[0] * 100}%;top:${r[1] * 100}%;width:${r[2] * 100}%;height:${r[3] * 100}%"></div>`).join('')).join('');
     pg.querySelector('.pg-bm')?.classList.toggle('on', R.ann.bookmarks.some((b) => b.page === n));
+    const ink = pg.querySelector('.ink-layer');
+    if (ink) ink.innerHTML = inkSvg(n, pg.querySelector('.pgi'));
+  }
+
+  // рисунки маркером: прямые отрезки в долях страницы; svg растягивается на всю страницу
+  const inkLine = (p, w, color, ar) =>
+    `<line x1="${p[0]}" y1="${p[1] * ar}" x2="${p[2]}" y2="${p[3] * ar}" stroke="${INK_HEX[color] || INK_HEX.yellow}" stroke-width="${w}"/>`;
+  function inkSvg(n, pgi) {
+    const w = parseFloat(pgi?.style.width) || 1;
+    const h = parseFloat(pgi?.style.height) || 1;
+    const ar = h / w;
+    const lines = (R.ann.strokes || []).filter((s) => s.page === n && Array.isArray(s.p)).map((s) => inkLine(s.p, s.w, s.color, ar)).join('');
+    return `<svg class="ink-svg" viewBox="0 0 1 ${ar}" preserveAspectRatio="none" aria-hidden="true">${lines}<g class="ink-live"></g></svg>`;
   }
 
   function paintAll() {
@@ -3234,6 +3261,171 @@
     if (bm) toggleBookmark(Number(bm.dataset.bm));
   });
 
+  /* ---------- Маркер: рисование прямых линий поверх страницы ---------- */
+  const inkBar = $('#ink-bar');
+  const inkBtn = $('#r-ink');
+
+  function inkPaintBar() {
+    const k = R.ink;
+    $$('[data-ic]', inkBar).forEach((b) => b.classList.toggle('on', k.tool === 'draw' && b.dataset.ic === k.color));
+    const sz = $('#ink-size');
+    sz.style.setProperty('--h', `${[4, 8, 14][k.size]}px`);
+    sz.title = `${INK_SIZE_NAMES[k.size]} — нажмите, чтобы сменить толщину`;
+    sz.setAttribute('aria-label', INK_SIZE_NAMES[k.size]);
+    const er = $('#ink-erase');
+    er.setAttribute('aria-pressed', String(k.tool === 'erase'));
+    $('#ink-undo').disabled = !k.hist.length;
+    reader.classList.toggle('erasing', k.on && k.tool === 'erase');
+  }
+
+  function inkEnter() {
+    if (!R.doc || R.ink.on) return;
+    R.ink.on = true;
+    R.ink.tool = 'draw';
+    R.ink.hist = [];
+    hidePop();
+    window.getSelection()?.removeAllRanges();
+    reader.classList.add('drawing');
+    inkBar.hidden = false;
+    inkBtn.setAttribute('aria-pressed', 'true');
+    inkPaintBar();
+  }
+
+  function inkExit() {
+    const k = R.ink;
+    if (!k.on && inkBar.hidden) return;
+    k.on = false;
+    k.cur = null;
+    k.hist = [];
+    reader.classList.remove('drawing', 'erasing');
+    inkBar.hidden = true;
+    inkBtn.setAttribute('aria-pressed', 'false');
+    $$('.ink-live', reader).forEach((g) => { g.innerHTML = ''; });
+  }
+
+  // отрезок от точки нажатия до текущей; почти горизонтальную или вертикальную линию выравниваем
+  function inkSegment(c) {
+    let { x1, y1 } = c;
+    const dx = (x1 - c.x0) * c.box.width;
+    const dy = (y1 - c.y0) * c.box.height;
+    if (Math.abs(dy) < Math.abs(dx) * 0.1) y1 = c.y0;
+    else if (Math.abs(dx) < Math.abs(dy) * 0.1) x1 = c.x0;
+    return { p: [c.x0, c.y0, x1, y1], len: Math.hypot((x1 - c.x0) * c.box.width, (y1 - c.y0) * c.box.height) };
+  }
+
+  function inkLive(c) {
+    const g = c.pg.querySelector('.ink-live');
+    if (!g) return;
+    g.innerHTML = inkLine(inkSegment(c).p, INK_SIZES[R.ink.size], R.ink.color, c.box.height / c.box.width);
+  }
+
+  const segDist = (px, py, ax, ay, bx, by) => {
+    const vx = bx - ax;
+    const vy = by - ay;
+    const l2 = vx * vx + vy * vy;
+    const t = l2 ? Math.min(1, Math.max(0, ((px - ax) * vx + (py - ay) * vy) / l2)) : 0;
+    return Math.hypot(px - (ax + t * vx), py - (ay + t * vy));
+  };
+
+  // стёрка убирает рисунки, которых коснулась
+  function inkErase(c) {
+    const ar = c.box.height / c.box.width;
+    const hit = R.ann.strokes.filter((s) => s.page === c.page && segDist(c.x1, c.y1 * ar, s.p[0], s.p[1] * ar, s.p[2], s.p[3] * ar) <= 0.02 + s.w / 2);
+    if (!hit.length) return;
+    R.ann.strokes = R.ann.strokes.filter((s) => !hit.includes(s));
+    c.removed.push(...hit);
+    paintPg(c.pg);
+  }
+
+  function inkUndo() {
+    const k = R.ink;
+    const h = k.hist.pop();
+    if (!h) return;
+    if (h.t === 'add') R.ann.strokes = R.ann.strokes.filter((s) => s.id !== h.s.id);
+    else R.ann.strokes.push(...h.list);
+    annTouch();
+    paintAll();
+    inkPaintBar();
+  }
+
+  const clamp01 = (v) => Math.min(1, Math.max(0, v));
+  const inkRound = (v) => Math.round(v * 10000) / 10000;
+
+  stage.addEventListener('pointerdown', (e) => {
+    const k = R.ink;
+    if (!k.on || k.cur || R.flipping || (e.pointerType === 'mouse' && e.button !== 0)) return;
+    const pgi = e.target.closest?.('.pgi');
+    if (!pgi || e.target.closest('.pg-bm')) return;
+    const pg = pgi.closest('.pg');
+    const page = Number(pg?.dataset.page);
+    if (!page) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const box = pgi.getBoundingClientRect();
+    const x = clamp01((e.clientX - box.left) / box.width);
+    const y = clamp01((e.clientY - box.top) / box.height);
+    k.cur = { id: e.pointerId, pg, pgi, page, box, x0: x, y0: y, x1: x, y1: y, removed: [] };
+    try { pgi.setPointerCapture(e.pointerId); } catch { /* ok */ }
+    if (k.tool === 'erase') inkErase(k.cur);
+  }, true);
+
+  stage.addEventListener('pointermove', (e) => {
+    const c = R.ink.cur;
+    if (!c || e.pointerId !== c.id) return;
+    e.preventDefault();
+    c.x1 = clamp01((e.clientX - c.box.left) / c.box.width);
+    c.y1 = clamp01((e.clientY - c.box.top) / c.box.height);
+    if (R.ink.tool === 'erase') inkErase(c); else inkLive(c);
+  }, true);
+
+  function inkFinish(e, cancel) {
+    const k = R.ink;
+    const c = k.cur;
+    if (!c || e.pointerId !== c.id) return;
+    k.cur = null;
+    try { c.pgi.releasePointerCapture(c.id); } catch { /* ok */ }
+    const g = c.pg.querySelector('.ink-live');
+    if (g) g.innerHTML = '';
+    if (k.tool === 'erase') {
+      if (c.removed.length) { k.hist.push({ t: 'del', list: c.removed }); annTouch(); }
+    } else if (!cancel) {
+      const seg = inkSegment(c);
+      if (seg.len >= 6) { // совсем короткие касания не считаем линией
+        const s = { id: uid(), page: c.page, color: k.color, w: INK_SIZES[k.size], p: seg.p.map(inkRound), createdAt: Date.now() };
+        R.ann.strokes.push(s);
+        k.hist.push({ t: 'add', s });
+        annTouch();
+        paintPg(c.pg);
+      }
+    }
+    if (k.hist.length > 200) k.hist.shift();
+    inkPaintBar();
+  }
+  stage.addEventListener('pointerup', (e) => inkFinish(e, false), true);
+  stage.addEventListener('pointercancel', (e) => inkFinish(e, true), true);
+
+  // пока рисуем — нажатия не открывают меню выделения и не листают страницы
+  stage.addEventListener('click', (e) => {
+    if (R.ink.on && !e.target.closest('.pg-bm')) { e.stopImmediatePropagation(); e.preventDefault(); }
+  }, true);
+
+  inkBtn.onclick = () => (R.ink.on ? inkExit() : inkEnter());
+  $('#ink-done').onclick = inkExit;
+  inkBar.addEventListener('click', (e) => {
+    const k = R.ink;
+    const col = e.target.closest('[data-ic]');
+    if (col) { k.color = col.dataset.ic; k.tool = 'draw'; lsSet('ink_color', k.color); }
+    else if (e.target.closest('#ink-size')) { k.size = (k.size + 1) % INK_SIZES.length; lsSet('ink_size', String(k.size)); }
+    else if (e.target.closest('#ink-erase')) k.tool = k.tool === 'erase' ? 'draw' : 'erase';
+    else if (e.target.closest('#ink-undo')) { inkUndo(); return; }
+    else return;
+    inkPaintBar();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (!R.ink.on || reader.hidden) return;
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === 'z' || e.key === 'Z' || e.key === 'я' || e.key === 'Я')) { e.preventDefault(); inkUndo(); }
+  });
+
   /* панель «Закладки и выделения» */
   let panelTab = 'bookmarks';
   let hlFilter = ''; // показывать выделения только одного цвета (темы)
@@ -3310,6 +3502,7 @@
   // Esc сначала закрывает меню или панель, и только потом читалку
   function readerEscape() {
     if (!pop.hidden) { hidePop(); return true; }
+    if (R.ink.on) { inkExit(); return true; }
     if (legendOn) { closeLegend(); return true; }
     if (!panel.hidden) { closePanel(); return true; }
     if (R.pseudoFull) { R.pseudoFull = false; applyFull(); return true; }
@@ -3405,10 +3598,10 @@
   // свайп для листания (когда страница целиком влезает по ширине)
   let touch = null;
   stage.addEventListener('touchstart', (e) => {
-    touch = e.touches.length === 1 ? { x: e.touches[0].clientX, y: e.touches[0].clientY } : null;
+    touch = e.touches.length === 1 && !R.ink.on ? { x: e.touches[0].clientX, y: e.touches[0].clientY } : null;
   }, { passive: true });
   stage.addEventListener('touchend', (e) => {
-    if (!touch || e.changedTouches.length !== 1) return;
+    if (!touch || R.ink.on || e.changedTouches.length !== 1) return;
     const dx = e.changedTouches[0].clientX - touch.x;
     const dy = e.changedTouches[0].clientY - touch.y;
     touch = null;

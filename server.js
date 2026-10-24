@@ -1176,6 +1176,7 @@ route('POST', '/api/streak', async (ctx) => {
 
 // --- Закладки и выделения (один документ на пользователя и книгу)
 const HL_COLORS = ['yellow', 'green', 'blue', 'pink'];
+const INK_COLORS = ['yellow', 'green', 'blue', 'pink', 'orange'];
 const TOPIC_MAX = 40;
 const num01 = (v) => Math.min(1, Math.max(0, Number(v) || 0));
 const cleanId = (v) => String(v ?? '').replace(/[^\w-]/g, '').slice(0, 40);
@@ -1210,6 +1211,22 @@ function cleanAnnotations(body, pages) {
       createdAt: Number(h.createdAt) || now(),
     });
   }
+  // рисунки маркером: прямые отрезки p = [x0, y0, x1, y1] в долях страницы, w — толщина в долях ширины
+  const strokes = [];
+  for (const s of Array.isArray(body.strokes) ? body.strokes.slice(0, 5000) : []) {
+    const page = pageOf(s?.page);
+    if (!page || !Array.isArray(s.p) || s.p.length !== 4) continue;
+    const p = s.p.map((v) => Math.round(num01(v) * 10000) / 10000);
+    const w = Math.round(Math.min(0.08, Math.max(0.002, Number(s.w) || 0.02)) * 10000) / 10000;
+    strokes.push({
+      id: cleanId(s.id) || `s${strokes.length}`,
+      page,
+      color: INK_COLORS.includes(s.color) ? s.color : 'yellow',
+      w,
+      p,
+      createdAt: Number(s.createdAt) || now(),
+    });
+  }
   // темы выделений: название для каждого цвета (например, жёлтый — «Акыда»)
   const topics = {};
   if (body.topics && typeof body.topics === 'object') {
@@ -1218,7 +1235,7 @@ function cleanAnnotations(body, pages) {
       if (name) topics[c] = name;
     }
   }
-  return { bookmarks, highlights, topics, legendDone: body.legendDone === true };
+  return { bookmarks, highlights, strokes, topics, legendDone: body.legendDone === true };
 }
 
 route('GET', '/api/annotations/:id', (ctx) => {
@@ -1226,7 +1243,7 @@ route('GET', '/api/annotations/:id', (ctx) => {
   const b = getBook(ctx.params.id);
   if (!b) throw new HttpError(404, 'Книга не найдена');
   const row = db.prepare('SELECT data, updated_at FROM annotations WHERE user_id = ? AND book_id = ?').get(ctx.user.id, b.id);
-  let data = { bookmarks: [], highlights: [], topics: {}, legendDone: false };
+  let data = { bookmarks: [], highlights: [], strokes: [], topics: {}, legendDone: false };
   if (row) { try { data = { ...data, ...JSON.parse(row.data) }; } catch { /* пусто */ } }
   sendJson(ctx.res, 200, { ...data, updatedAt: row ? row.updated_at : 0 }, { 'Cache-Control': 'no-store' });
 });
