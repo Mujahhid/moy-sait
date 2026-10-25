@@ -908,6 +908,14 @@ main { position: relative; z-index: 0; isolation: isolate; max-width: var(--maxw
 .p-notes { margin-bottom: 18px; }
 .p-notes b { color: var(--green); }
 
+/* профиль: «Наши соцсети» */
+.p-social { margin: 0 0 18px; text-align: center; }
+.p-social h4 { margin: 0 0 10px; }
+.p-social-links { display: flex; justify-content: center; gap: 14px; }
+.soc-btn { display: inline-flex; align-items: center; justify-content: center; width: 48px; height: 48px; border: 1px solid var(--line); border-radius: 14px; background: var(--card); color: var(--green); text-decoration: none; transition: transform .12s, background .12s; }
+.soc-btn:hover { background: rgba(127,127,127,.09); transform: translateY(-1px); }
+.soc-btn svg { width: 24px; height: 24px; }
+
 /* окно «Закладки и выделения» по всем книгам */
 #notes-body .tabs .tab .n { opacity: .6; font-size: .8rem; margin-left: 2px; }
 .n-sec { border: 1px solid var(--line); border-radius: 14px; background: var(--card); margin-bottom: 10px; overflow: hidden; }

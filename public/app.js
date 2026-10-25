@@ -1511,6 +1511,13 @@
         <div class="stat"><b>${stats.favorites}</b><span>хочу прочитать</span></div>
       </div>
       <button type="button" class="btn ghost wide p-notes" id="p-notes">Мои закладки <b>${stats.bookmarks || 0}</b> и выделения <b>${stats.highlights || 0}</b></button>
+      <div class="p-social">
+        <h4>Наши соцсети</h4>
+        <div class="p-social-links">
+          <a class="soc-btn" href="${SOCIAL_LINKS.telegram}" target="_blank" rel="noopener noreferrer" aria-label="Telegram" title="Telegram">${SOC_TG_SVG}</a>
+          <a class="soc-btn" href="${SOCIAL_LINKS.instagram}" target="_blank" rel="noopener noreferrer" aria-label="Instagram" title="Instagram">${SOC_IG_SVG}</a>
+        </div>
+      </div>
       ${cont.length ? `<h4>Продолжить чтение</h4><div class="cont">${cont.map((b) => `
         <button type="button" class="cont-item" data-continue="${b.id}">${thumbHtml(b)}
           <span class="txt"><b dir="auto">${esc(b.title)}</b>
@@ -2047,6 +2054,10 @@
   const FLAME_FROM = 2;
   const STREAK_STEP = 30;
   const FLAME_MAX_LEVEL = 5;
+  // Ссылки на соцсети (блок «Наши соцсети» в профиле)
+  const SOCIAL_LINKS = { telegram: 'TG_URL_HERE', instagram: 'IG_URL_HERE' };
+  const SOC_TG_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M21.9 4.3 18.7 19.5c-.2 1-.9 1.3-1.7.8l-4.8-3.6-2.3 2.2c-.3.3-.5.5-1 .5l.3-4.9 8.9-8c.4-.3-.1-.5-.6-.2L6.5 13.2 1.8 11.7c-1-.3-1-1 .2-1.5L20.3 3.1c.9-.3 1.6.2 1.6 1.2z"/></svg>';
+  const SOC_IG_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4.2"/><circle cx="17.3" cy="6.7" r="1" fill="currentColor" stroke="none"/></svg>';
   const FLAME_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path class="fo" d="M12 2s1.2 3.6-1.2 6.4C8.7 10.9 6 12.9 6 16.2 6 19.4 8.7 22 12 22s6-2.6 6-5.8c0-2.7-1.5-4.4-2.7-5.9-.4 1.2-1.1 2-2 2.4C13.9 9.4 13.4 5 12 2z"/><path class="fi" d="M12 22c-1.9 0-3.3-1.4-3.3-3.2 0-2 1.5-3 2.4-4.2.4 1 1 1.6 1.7 1.9.5-.8.7-1.5.7-2.2 1.3 1.1 1.8 2.5 1.8 4.4 0 1.8-1.4 3.3-3.3 3.3z"/></svg>';
   const STREAK = { streak: 0, best: 0, today: false, busy: false };
   const daysWord = (n) => (n % 10 === 1 && n % 100 !== 11 ? 'день' : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? 'дня' : 'дней');
