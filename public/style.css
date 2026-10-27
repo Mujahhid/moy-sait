@@ -1153,6 +1153,8 @@ main { position: relative; z-index: 0; isolation: isolate; max-width: var(--maxw
 .pe-ava-btns { display: flex; flex-wrap: wrap; gap: 8px; }
 .pe-file { display: inline-flex; align-items: center; cursor: pointer; }
 .pe-ava > .form-error { flex: 1 0 100%; min-height: 0; margin: 0; }
+.reg-ava { margin: 4px 0 14px; }
+.reg-ava .pe-note { flex: 1 0 100%; margin: 0; }
 .pe-sec { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); }
 .pe-sec h4 { margin-bottom: 10px; }
 .pe-note { margin: -4px 0 12px; }

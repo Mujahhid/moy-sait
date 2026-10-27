@@ -408,17 +408,20 @@
           <label class="field">Пароль
             <input name="password" type="password" autocomplete="current-password" required minlength="6">
           </label>
+          ${regAvatarHtml('g')}
           <p class="form-error" id="g-error" role="alert"></p>
           <button class="btn primary wide" type="submit" id="g-submit">Войти</button>
         </form>
       </div></section>`;
     const form = $('#g-form');
+    const ava = regAvatar('g', form, $('#g-error'));
     $$('[data-gtab]', view).forEach((t) => (t.onclick = () => {
       mode = t.dataset.gtab;
       $$('[data-gtab]', view).forEach((x) => x.classList.toggle('active', x === t));
       $('#g-title').textContent = mode === 'login' ? 'Вход в аккаунт' : 'Создать аккаунт';
       $('#g-submit').textContent = mode === 'login' ? 'Войти' : 'Зарегистрироваться';
       form.password.autocomplete = mode === 'login' ? 'current-password' : 'new-password';
+      ava.show(mode === 'register');
       $('#g-error').textContent = '';
     }));
     form.addEventListener('submit', async (e) => {
@@ -431,8 +434,13 @@
           nick: form.nick.value.trim(),
           password: form.password.value,
         });
+        let avaFailed = false;
+        if (mode === 'register' && ava.has()) {
+          try { user.avatarVer = await ava.upload(); } catch { avaFailed = true; }
+        }
         state.me = user;
-        toast(mode === 'login' ? `С возвращением, ${user.nick}!` : `Добро пожаловать, ${user.nick}!`);
+        toast(avaFailed ? 'Аккаунт создан, но фото не загрузилось. Добавьте его в профиле.'
+          : mode === 'login' ? `С возвращением, ${user.nick}!` : `Добро пожаловать, ${user.nick}!`);
         await render();
       } catch (err) {
         $('#g-error').textContent = err.message;
@@ -1375,12 +1383,14 @@
 
   /* ================= Вход и регистрация ================= */
   let authMode = 'login';
+  const authAva = regAvatar('auth', $('#auth-form'), $('#auth-error'));
   function setAuthMode(mode) {
     authMode = mode;
     $$('#m-auth .tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === mode));
     $('#auth-title').textContent = mode === 'login' ? 'Вход в аккаунт' : 'Создать аккаунт';
     $('#auth-submit').textContent = mode === 'login' ? 'Войти' : 'Зарегистрироваться';
     $('#auth-form [name=password]').autocomplete = mode === 'login' ? 'current-password' : 'new-password';
+    authAva.show(mode === 'register');
     $('#auth-error').textContent = '';
   }
 
@@ -1404,11 +1414,17 @@
         nick: form.nick.value.trim(),
         password: form.password.value,
       });
+      let avaFailed = false;
+      if (authMode === 'register' && authAva.has()) {
+        try { user.avatarVer = await authAva.upload(); } catch { avaFailed = true; }
+      }
       state.me = user;
       syncStreak();
       form.reset();
+      authAva.reset();
       closeModal($('#m-auth'));
-      toast(authMode === 'login' ? `С возвращением, ${user.nick}!` : `Добро пожаловать, ${user.nick}!`);
+      toast(avaFailed ? 'Аккаунт создан, но фото не загрузилось. Добавьте его в профиле.'
+        : authMode === 'login' ? `С возвращением, ${user.nick}!` : `Добро пожаловать, ${user.nick}!`);
       const next = state.afterLogin;
       state.afterLogin = null;
       await render();
@@ -1940,6 +1956,62 @@
     const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.88));
     if (!blob) throw new Error('Не удалось подготовить фото');
     return blob;
+  }
+
+  // необязательное фото при регистрации: выбор, превью и загрузка сразу после создания аккаунта
+  function regAvatarHtml(p) {
+    return `<div class="pe-ava reg-ava" id="${p}-ava" hidden>
+        <div class="avatar lg" id="${p}-ava-prev">?</div>
+        <div class="pe-ava-btns">
+          <label class="btn ghost small pe-file"><span id="${p}-ava-lbl">Добавить фото</span><input type="file" id="${p}-file" accept="image/*" hidden></label>
+          <button type="button" class="btn ghost small" id="${p}-ava-clear" hidden>Убрать</button>
+        </div>
+        <p class="muted small pe-note">Необязательно. Фото видите только вы и администратор.</p>
+      </div>`;
+  }
+
+  function regAvatar(p, form, errEl) {
+    const box = $(`#${p}-ava`);
+    const prev = $(`#${p}-ava-prev`);
+    const file = $(`#${p}-file`);
+    const clear = $(`#${p}-ava-clear`);
+    const lbl = $(`#${p}-ava-lbl`);
+    let blob = null;
+    let url = '';
+    const paint = () => {
+      if (url) { URL.revokeObjectURL(url); url = ''; }
+      if (blob) {
+        url = URL.createObjectURL(blob);
+        prev.innerHTML = `<img src="${url}" alt="" draggable="false">`;
+      } else {
+        prev.textContent = (form.nick.value.trim()[0] || '?');
+      }
+      lbl.textContent = blob ? 'Заменить фото' : 'Добавить фото';
+      clear.hidden = !blob;
+    };
+    file.onchange = async (ev) => {
+      const f = ev.target.files?.[0];
+      ev.target.value = '';
+      if (!f) return;
+      errEl.textContent = '';
+      try { blob = await avatarBlob(f); } catch (err) { errEl.textContent = err.message; return; }
+      paint();
+    };
+    clear.onclick = () => { blob = null; paint(); };
+    form.nick.addEventListener('input', () => { if (!blob) paint(); });
+    paint();
+    return {
+      show(v) { box.hidden = !v; },
+      has: () => !!blob,
+      reset() { blob = null; paint(); },
+      // вызывается уже после регистрации, когда есть сессия
+      async upload() {
+        const res = await fetch('/api/avatar', { method: 'PUT', headers: { 'Content-Type': 'image/jpeg' }, credentials: 'same-origin', body: blob });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || 'Не удалось сохранить фото');
+        return data.avatarVer;
+      },
+    };
   }
 
   function openEditProfile() {

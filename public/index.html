@@ -176,6 +176,14 @@
         <label class="field">Пароль
           <input name="password" type="password" autocomplete="current-password" required minlength="6">
         </label>
+        <div class="pe-ava reg-ava" id="auth-ava" hidden>
+          <div class="avatar lg" id="auth-ava-prev">?</div>
+          <div class="pe-ava-btns">
+            <label class="btn ghost small pe-file"><span id="auth-ava-lbl">Добавить фото</span><input type="file" id="auth-file" accept="image/*" hidden></label>
+            <button type="button" class="btn ghost small" id="auth-ava-clear" hidden>Убрать</button>
+          </div>
+          <p class="muted small pe-note">Необязательно. Фото видите только вы и администратор.</p>
+        </div>
         <p class="form-error" id="auth-error" role="alert"></p>
         <button class="btn primary wide" type="submit" id="auth-submit">Войти</button>
       </form>
