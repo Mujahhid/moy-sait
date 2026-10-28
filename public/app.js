@@ -2950,7 +2950,7 @@
     R.saveTimer = setTimeout(flushProgress, 700);
   }
 
-  // Страница считается прочитанной, если разворот пробыл открытым READ_DWELL_MS при видимой вкладке.
+  // Страница считается прочитанной, если пробыла открытой READ_DWELL_MS при видимой вкладке (разворот из двух страниц — вдвое дольше).
   // Перелистнул раньше или свернул вкладку — время на этой странице не копится (при возврате отсчёт продолжается).
   const READ_DWELL_MS = 12000;
   const DW = { key: '', pages: [], left: 0, since: 0, timer: 0, done: new Set() };
@@ -2961,7 +2961,7 @@
     clearTimeout(DW.timer);
     DW.key = key;
     DW.pages = pages;
-    DW.left = READ_DWELL_MS;
+    DW.left = READ_DWELL_MS * Math.max(1, pages.length); // на развороте две страницы — читать их дольше
     DW.since = 0;
     resumeDwell();
   }
