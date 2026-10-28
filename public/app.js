@@ -2560,6 +2560,7 @@
     flushProgress();
     annPush(true);
     stopReadingBeat();
+    stopDwell();
     clearTimeout(R.readTimer);
     R.nav++;
     R.session++;
@@ -2801,6 +2802,7 @@
     }
     [R.pgL, R.pgR].forEach((pg) => pg && attachText(pg));
     updateReaderUi();
+    startDwell();
     if (save) scheduleSave();
     prefetchAround();
     if (R.pending && session === R.session) {
@@ -2946,6 +2948,55 @@
     R.dirty = true;
     clearTimeout(R.saveTimer);
     R.saveTimer = setTimeout(flushProgress, 700);
+  }
+
+  // Страница считается прочитанной, если разворот пробыл открытым READ_DWELL_MS при видимой вкладке.
+  // Перелистнул раньше или свернул вкладку — время на этой странице не копится (при возврате отсчёт продолжается).
+  const READ_DWELL_MS = 12000;
+  const DW = { key: '', pages: [], left: 0, since: 0, timer: 0, done: new Set() };
+  function startDwell() {
+    const pages = [R.spread.l, R.spread.r].filter(Boolean);
+    const key = `${R.book?.id}:${pages.join(',')}`;
+    if (key === DW.key) return; // тот же разворот (например, поменялся размер окна) — таймер не трогаем
+    clearTimeout(DW.timer);
+    DW.key = key;
+    DW.pages = pages;
+    DW.left = READ_DWELL_MS;
+    DW.since = 0;
+    resumeDwell();
+  }
+  function resumeDwell() {
+    clearTimeout(DW.timer);
+    if (!R.book || !state.me || reader.hidden || document.hidden || !DW.pages.length) return;
+    if (DW.pages.every((p) => DW.done.has(`${R.book.id}:${p}`))) return; // уже засчитано в этом сеансе
+    DW.since = Date.now();
+    DW.timer = setTimeout(creditDwell, DW.left);
+  }
+  function pauseDwell() {
+    if (!DW.timer) return;
+    clearTimeout(DW.timer);
+    DW.timer = 0;
+    DW.left = Math.max(0, DW.left - (Date.now() - DW.since));
+  }
+  function stopDwell() {
+    clearTimeout(DW.timer);
+    DW.timer = 0;
+    DW.key = '';
+    DW.pages = [];
+  }
+  function creditDwell() {
+    DW.timer = 0;
+    if (!R.book || !state.me || reader.hidden || document.hidden) return;
+    const id = R.book.id;
+    const pages = DW.pages.slice();
+    pages.forEach((p) => DW.done.add(`${id}:${p}`));
+    fetch(`/api/read-pages/${id}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({ pages, day: dayKey() }), // день — по часам устройства
+      keepalive: true,
+    }).catch(() => { pages.forEach((p) => DW.done.delete(`${id}:${p}`)); });
   }
 
   // «Читает сейчас»: пока книга открыта и вкладка на виду, раз в 45 секунд сообщаем серверу, какая книга открыта
@@ -3595,8 +3646,8 @@
   /* ---------- Кнопки и клавиши ---------- */
   window.addEventListener('popstate', () => { if (!reader.hidden) doCloseReader(); });
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden) { flushProgress(); annPush(true); if (R.book) sendReadingNow(0); }
-    else if (R.book && !reader.hidden) sendReadingNow(R.book.id); // вернулся к книге — снова «читает»
+    if (document.hidden) { pauseDwell(); flushProgress(); annPush(true); if (R.book) sendReadingNow(0); }
+    else if (R.book && !reader.hidden) { resumeDwell(); sendReadingNow(R.book.id); } // вернулся к книге — снова «читает»
   });
   window.addEventListener('pagehide', () => { flushProgress(); annPush(true); if (R.book) sendReadingNow(0); });
   window.addEventListener('online', () => annPush());

@@ -1051,19 +1051,18 @@ route('PUT', '/api/progress/:id', async (ctx) => {
   let page = parseInt(body.page, 10);
   if (!Number.isFinite(page) || page < 1) throw new HttpError(400, 'Некорректная страница');
   if (b.pages > 0) page = Math.min(page, b.pages);
-  const prev = db.prepare('SELECT page FROM progress WHERE user_id = ? AND book_id = ?').get(ctx.user.id, b.id);
   db.prepare(
     `INSERT INTO progress (user_id, book_id, page, updated_at) VALUES (?, ?, ?, ?)
      ON CONFLICT(user_id, book_id) DO UPDATE SET page = excluded.page, updated_at = excluded.updated_at`
   ).run(ctx.user.id, b.id, page, now());
-  creditPages(ctx.user.id, b.id, prev ? prev.page : 0, page, body.day, !prev);
   sendJson(ctx.res, 200, { page });
 });
 
-// Сколько страниц прочитано: шаг вперёд засчитываем страницами между прежним и новым местом.
-// Прыжок ползунком (дальше JUMP_MAX страниц) чтением не считается — страницы не читали, а проматывали.
-// Если книгу открыли впервые, засчитываем только первый разворот — чтение с начала.
-const JUMP_MAX = 40;
+// Сколько страниц прочитано: страница засчитывается, когда её продержали открытой ~12 секунд
+// (таймер на устройстве, пока вкладка на виду). Само перелистывание чтением не считается.
+// Сервер принимает не больше одной засчитанной страницы (или разворота) за READ_MIN_GAP_MS на человека.
+const READ_MIN_GAP_MS = 10000;
+const lastCredit = new Map(); // userId -> время последнего засчитывания
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 function clientDay(s) {
   const today = Math.floor(now() / DAY_MS);
@@ -1074,19 +1073,23 @@ function clientDay(s) {
   }
   return new Date(today * DAY_MS).toISOString().slice(0, 10);
 }
-function creditPages(userId, bookId, from, to, day, fresh) {
-  let first;
-  if (fresh) {
-    if (to > 4) return;
-    first = Math.max(1, to - 1);
-  } else {
-    if (to <= from || to - from > JUMP_MAX) return;
-    first = from + 1;
+route('POST', '/api/read-pages/:id', async (ctx) => {
+  requireUser(ctx);
+  const b = getBook(ctx.params.id);
+  if (!b) throw new HttpError(404, 'Книга не найдена');
+  const body = await readJson(ctx.req);
+  const pages = [...new Set((Array.isArray(body.pages) ? body.pages : []).map((p) => parseInt(p, 10)))];
+  if (!pages.length || pages.length > 2 || pages.some((p) => !Number.isFinite(p) || p < 1 || (b.pages > 0 && p > b.pages))) {
+    throw new HttpError(400, 'Некорректные страницы');
   }
-  const d = clientDay(day);
+  const t = now();
+  if (t - (lastCredit.get(ctx.user.id) || 0) < READ_MIN_GAP_MS) return sendJson(ctx.res, 200, { credited: 0 });
+  lastCredit.set(ctx.user.id, t);
+  const d = clientDay(body.day);
   const ins = db.prepare('INSERT OR IGNORE INTO read_pages (user_id, day, book_id, page) VALUES (?, ?, ?, ?)');
-  for (let p = first; p <= to; p++) ins.run(userId, d, bookId, p);
-}
+  for (const p of pages) ins.run(ctx.user.id, d, b.id, p);
+  sendJson(ctx.res, 200, { credited: pages.length });
+});
 
 // Статистика по дням: сколько страниц прочитано в каждый день (за последние ~400 дней)
 route('GET', '/api/read-stats', (ctx) => {
