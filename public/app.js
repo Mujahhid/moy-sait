@@ -692,6 +692,7 @@
     fajr: 'fajr', fadjr: 'fajr', fadzhr: 'fajr', фаджр: 'fajr', фаджир: 'fajr', фаджриздательскийдом: 'fajr', издательскийдомфаджр: 'fajr',
     rushd: 'rushd', рушд: 'rushd',
     abusolikh: 'abu-solikh', abusolih: 'abu-solikh', abusalih: 'abu-solikh', абусолих: 'abu-solikh', абусалих: 'abu-solikh',
+    ummah: 'ummah', umma: 'ummah', умма: 'ummah', уммах: 'ummah',
   };
   const pubLogo = (name) => PUB_LOGOS[String(name).toLowerCase().replace(/[^a-zа-яё0-9]/g, '')];
   const pubIcon = (name) => {
