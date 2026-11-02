@@ -525,15 +525,22 @@
   document.body.appendChild(tipEl);
   let tipTarget = null;
   let tipTimer = 0;
+  let tipLeaveTimer = 0; // у плашки с кнопкой даём время дойти до неё мышью
   const pagesWord = (n) => (n % 10 === 1 && n % 100 !== 11 ? 'страница' : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? 'страницы' : 'страниц');
   function hideTip() {
     clearTimeout(tipTimer);
+    clearTimeout(tipLeaveTimer);
+    tipLeaveTimer = 0;
     tipTarget = null;
     tipEl.hidden = true;
   }
   function showTip(el) {
     const pages = Number(el.dataset.pages) || 0;
-    tipEl.innerHTML = `<b dir="auto">${esc(el.dataset.tip)}</b>${pages ? `<span>${pages} ${pagesWord(pages)}</span>` : ''}`;
+    // администратору на полке издательства в плашке доступно удаление книги
+    const canDel = !!state.me?.isAdmin && !!el.closest('.cabinet') && !!el.dataset.open;
+    tipEl.classList.toggle('admin', canDel);
+    tipEl.innerHTML = `<b dir="auto">${esc(el.dataset.tip)}</b>${pages ? `<span>${pages} ${pagesWord(pages)}</span>` : ''}${
+      canDel ? `<button type="button" class="tip-del" data-del-book="${esc(el.dataset.open)}">Удалить книгу</button>` : ''}`;
     tipEl.hidden = false;
     const r = el.getBoundingClientRect();
     const w = tipEl.offsetWidth;
@@ -547,14 +554,39 @@
   // по движению мыши, а не по pointerover: если список перерисовался под курсором, плашка всё равно появится
   document.addEventListener('pointermove', (e) => {
     if (e.pointerType !== 'mouse') return;
+    if (tipEl.contains(e.target)) { clearTimeout(tipLeaveTimer); tipLeaveTimer = 0; return; } // мышь на самой плашке — не прячем
     const el = e.target.closest?.('[data-tip]');
-    if (el && el === tipTarget) return;
+    if (el && el === tipTarget) { clearTimeout(tipLeaveTimer); tipLeaveTimer = 0; return; }
+    if (!el && tipTarget && !tipEl.hidden && tipEl.classList.contains('admin')) {
+      // ушли с книги, у плашки есть кнопка: прячем не сразу, чтобы успеть до неё дойти
+      if (!tipLeaveTimer) tipLeaveTimer = setTimeout(hideTip, 350);
+      return;
+    }
     hideTip();
     if (!el || !view.contains(el)) return;
     tipTarget = el;
     tipTimer = setTimeout(() => { if (tipTarget === el && el.isConnected) showTip(el); }, 180);
   });
-  document.addEventListener('pointerdown', hideTip, true);
+  document.addEventListener('pointerdown', (e) => { if (!tipEl.contains(e.target)) hideTip(); }, true);
+
+  // кнопка «Удалить книгу» в плашке (только админ; сервер тоже проверяет права)
+  tipEl.addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-del-book]');
+    if (!btn || !state.me?.isAdmin) return;
+    const id = Number(btn.dataset.delBook);
+    const title = tipTarget?.dataset.tip || 'эту книгу';
+    hideTip();
+    if (!confirm(`Удалить «${title}» из библиотеки? Файл книги будет удалён безвозвратно.`)) return;
+    try {
+      await api('DELETE', `/api/books/${id}`);
+      toast('Книга удалена');
+      const y = window.scrollY;
+      await render();
+      window.scrollTo(0, y);
+    } catch (err) {
+      toast(err.message, true);
+    }
+  });
 
   // телефон и планшет: долгое нажатие на книгу показывает ту же плашку (название и число страниц)
   const LONG_PRESS_MS = 450;
@@ -577,7 +609,7 @@
       tipTarget = el;
       showTip(el);
       clearTimeout(tipHideTimer);
-      tipHideTimer = setTimeout(() => { if (tipTarget === el) hideTip(); }, 4000);
+      tipHideTimer = setTimeout(() => { if (tipTarget === el) hideTip(); }, tipEl.classList.contains('admin') ? 8000 : 4000);
       if (navigator.vibrate) navigator.vibrate(12);
     }, LONG_PRESS_MS);
   }, true);
