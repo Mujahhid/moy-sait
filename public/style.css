@@ -1167,6 +1167,7 @@ main { position: relative; z-index: 0; isolation: isolate; max-width: var(--maxw
 .pe-note { margin: -4px 0 12px; }
 .pe-pass { display: flex; gap: 8px; align-items: stretch; }
 .pe-pass input { flex: 1; min-width: 0; letter-spacing: .2em; }
+.pe-nick input { letter-spacing: normal; }
 .field input[readonly] { color: var(--muted); background: var(--paper-2); cursor: default; }
 #pe-pw-form { margin: 0 0 8px; padding: 12px; border: 1px solid var(--line); border-radius: 14px; }
 

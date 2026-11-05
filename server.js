@@ -1479,11 +1479,9 @@ route('POST', '/api/admin/users/:id/password', async (ctx) => {
   sendJson(ctx.res, 200, { ok: true });
 });
 
-route('POST', '/api/admin/users/:id/nick', async (ctx) => {
-  requireAdmin(ctx);
-  const u = getUserOr404(ctx.params.id);
-  const body = await readJson(ctx.req);
-  const nick = String(body.nick || '').trim();
+// Смена ника (он же логин): одни и те же правила для администратора и для самого человека
+function renameUser(u, raw) {
+  const nick = String(raw || '').trim();
   if (!NICK_RE.test(nick)) throw new HttpError(400, 'Ник: 3–24 символа, только латиница, цифры и «_»');
   const clash = db.prepare('SELECT id FROM users WHERE nick = ? AND id != ?').get(nick, u.id);
   if (clash) throw new HttpError(409, 'Такой ник уже занят');
@@ -1492,7 +1490,22 @@ route('POST', '/api/admin/users/:id/nick', async (ctx) => {
     throw new HttpError(400, 'Этот ник зарезервирован за администратором');
   }
   db.prepare('UPDATE users SET nick = ? WHERE id = ?').run(nick, u.id);
-  sendJson(ctx.res, 200, { ok: true, nick });
+  return nick;
+}
+
+route('POST', '/api/admin/users/:id/nick', async (ctx) => {
+  requireAdmin(ctx);
+  const u = getUserOr404(ctx.params.id);
+  const body = await readJson(ctx.req);
+  sendJson(ctx.res, 200, { ok: true, nick: renameUser(u, body.nick) });
+});
+
+// Свой ник может сменить любой вошедший пользователь; сессия и пароль остаются прежними
+route('PUT', '/api/nick', async (ctx) => {
+  requireUser(ctx);
+  const u = db.prepare('SELECT id, nick FROM users WHERE id = ?').get(ctx.user.id);
+  const body = await readJson(ctx.req);
+  sendJson(ctx.res, 200, { nick: renameUser(u, body.nick) });
 });
 
 route('GET', '/healthz', (ctx) => {

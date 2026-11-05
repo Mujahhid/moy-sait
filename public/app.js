@@ -2053,8 +2053,16 @@
       <div class="pe-ava" id="pe-ava"></div>
       <div class="pe-sec">
         <h4>Аккаунт</h4>
-        <label class="field">Ник (он же логин для входа)<input value="${esc(me.nick)}" readonly dir="ltr"></label>
-        <p class="muted small pe-note">Ник может изменить администратор библиотеки.</p>
+        <form id="pe-nick-form">
+          <div class="field">Ник (он же логин для входа)
+            <div class="pe-pass pe-nick">
+              <input name="nick" value="${esc(me.nick)}" aria-label="Ник" autocomplete="username" autocapitalize="off" spellcheck="false" required minlength="3" maxlength="24" pattern="[A-Za-z0-9_]{3,24}" dir="ltr">
+              <button type="submit" class="btn ghost small">Сохранить</button>
+            </div>
+          </div>
+          <p class="muted small pe-note">Латиница, цифры и «_», от 3 до 24 символов. После смены входите под новым ником, пароль остаётся прежним.</p>
+          <p class="form-error" id="pe-nick-err"></p><p class="ok-msg" id="pe-nick-ok"></p>
+        </form>
         <div class="field">Пароль
           <div class="pe-pass"><input value="••••••••" readonly aria-label="Пароль скрыт" tabindex="-1"><button type="button" class="btn ghost small" id="pe-pass-btn">Сменить</button></div>
         </div>
@@ -2133,6 +2141,28 @@
         $('#pe-pw-ok').textContent = 'Пароль изменён. На других устройствах потребуется войти заново.';
       } catch (e) {
         err.textContent = e.message;
+      }
+    });
+    $('#pe-nick-form').addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const f = ev.currentTarget;
+      const value = f.nick.value.trim();
+      $('#pe-nick-err').textContent = '';
+      $('#pe-nick-ok').textContent = '';
+      if (value === state.me.nick) return;
+      const btn = $('button[type=submit]', f);
+      btn.disabled = true;
+      try {
+        const res = await api('PUT', '/api/nick', { nick: value });
+        state.me.nick = res.nick;
+        f.nick.value = res.nick;
+        $('#pe-nick-ok').textContent = `Ник изменён: теперь «${res.nick}». Для входа используйте его.`;
+        updateNav();
+        if (state.route === 'profile') renderProfile();
+      } catch (e) {
+        $('#pe-nick-err').textContent = e.message;
+      } finally {
+        btn.disabled = false;
       }
     });
     $('#pe-phone-form').addEventListener('submit', async (ev) => {
