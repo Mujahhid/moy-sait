@@ -1,2 +1,31 @@
+# Данные сайта: база, книги, резервные копии (на сервере живут в DATA_DIR, в репозиторий не попадают)
 data/
+uploads/
+backups/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+maktabatul-backup-*.tar
+
+# Секреты и ключи: настройки хранятся в переменных окружения, а не в файлах репозитория
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+
+# Локальные настройки Claude Code и редакторов
+.claude/
+.vscode/
+.idea/
+
+# Зависимости, логи, системные файлы
 node_modules/
+*.log
+.DS_Store
+Thumbs.db
