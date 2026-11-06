@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# Установка библиотеки на чистый сервер Ubuntu 22.04 / 24.04 (Timeweb Cloud и др.). Запускать от root.
+# Установка библиотеки на чистый сервер Ubuntu 22.04 / 24.04 (облачный сервер Рег.ру и др.). Запускать от root.
 #
 #   Без домена (по IP, без HTTPS):   bash install.sh
 #   С доменом (HTTPS автоматически): bash install.sh library.example.ru
+#   Несколько доменов:               bash install.sh 'example.ru, www.example.ru'
 #
 # Переменные (необязательно):
-#   REPO=https://github.com/Mujahhid/maktabatul-ulum.git   откуда брать код
+#   REPO=https://github.com/Mujahhid/moy-sait.git          откуда брать код
 #   GH_TOKEN=github_pat_...                              токен только для чтения, если репозиторий приватный
 #   MAX_PDF_MB=500                                       максимальный размер одной книги
 #
@@ -13,7 +14,7 @@
 set -euo pipefail
 
 DOMAIN="${1:-}"
-REPO="${REPO:-https://github.com/Mujahhid/maktabatul-ulum.git}"
+REPO="${REPO:-https://github.com/Mujahhid/moy-sait.git}"
 APP_DIR=/opt/kutubul
 DATA_DIR=/var/lib/kutubul
 ENV_FILE=/etc/kutubul.env
