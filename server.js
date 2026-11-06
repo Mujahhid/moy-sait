@@ -7,7 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { writeBackup, receiveRestore, applyPendingRestore, startAutoBackup } from './backup.js';
-import { movedConfig, movedPageHtml } from './moved.js';
+import { movedConfig, movedOverlayHtml } from './moved.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -19,8 +19,7 @@ const PUBLIC_DIR = path.join(__dirname, 'public');
 const MAX_PDF_MB = Number(process.env.MAX_PDF_MB || 200);
 const ADMIN_NICK = (process.env.ADMIN_NICK || '').trim().toLowerCase();
 const REGISTRATION_OPEN = (process.env.REGISTRATION || 'open') !== 'closed';
-const MOVED = movedConfig(process.env); // MOVED_TO задан — вместо сайта показываем «Сайт переехал»
-const MOVED_HTML = MOVED ? Buffer.from(movedPageHtml(MOVED)) : null;
+const MOVED = movedConfig(process.env); // MOVED_TO задан — поверх сайта показываем окно «Сайт переехал»
 const SESSION_DAYS = 30;
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -1523,18 +1522,17 @@ async function handle(req, res) {
   res.setHeader('Referrer-Policy', 'same-origin');
 
   const isApi = url.pathname.startsWith('/api/') || url.pathname === '/healthz';
-  if (MOVED && url.pathname !== '/healthz') {
-    if (isApi) return sendJson(res, 410, { error: `Сайт переехал: ${MOVED.to}`, movedTo: MOVED.to });
-    // страницы (без расширения или .html) — объявление о переезде; файлы (sw.js, стили, картинки) — как раньше
-    if (!/\.[a-z0-9]+$/i.test(url.pathname) || /\.html?$/i.test(url.pathname)) {
-      res.writeHead(200, {
-        'Content-Type': 'text/html; charset=utf-8',
-        'Content-Length': MOVED_HTML.length,
-        'Cache-Control': 'no-store',
-        'X-Robots-Tag': 'noindex',
-      });
-      return res.end(req.method === 'HEAD' ? undefined : MOVED_HTML);
-    }
+  if (MOVED && (req.method === 'GET' || req.method === 'HEAD') && (url.pathname === '/' || url.pathname === '/index.html')) {
+    // главная страница сайта + окно «Сайт переехал» (появляется при каждом открытии, закрывается крестиком)
+    const page = fs.readFileSync(path.join(PUBLIC_DIR, 'index.html'), 'utf8');
+    const body = Buffer.from(page.replace(/<\/body>/i, () => movedOverlayHtml(MOVED) + '</body>'));
+    res.writeHead(200, {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Content-Length': body.length,
+      'Cache-Control': 'no-cache',
+      'X-Robots-Tag': 'noindex',
+    });
+    return res.end(req.method === 'HEAD' ? undefined : body);
   }
   if (!isApi) {
     if (req.method !== 'GET' && req.method !== 'HEAD') return sendJson(res, 405, { error: 'Метод не поддерживается' });
